@@ -58,34 +58,39 @@ app = Dash(__name__, external_stylesheets=[dbc.themes.DARKLY])
 server = app.server
 app.config.suppress_callback_exceptions = True
 
-@lru_cache(maxsize=64)  # Increased cache size for better performance
+@lru_cache(maxsize=64)
 def process_articles(start_date, end_date):
     try:
         logger.info(f"Fetching articles from {start_date} to {end_date}")
         
-        # Calculate days_back based on the start date
+        # Convert string dates to datetime objects
         start_date_dt = datetime.strptime(start_date, '%Y-%m-%d').date()
         end_date_dt = datetime.strptime(end_date, '%Y-%m-%d').date()
-        days_back = (datetime.now().date() - start_date_dt).days
+        days_back = (datetime.now().date() - start_date_dt).days + 1  # Add 1 to include start date
         
-        # Fetch articles with calculated days_back
+        logger.info(f"Calculated days_back: {days_back}")
+        
+        # Fetch articles
         df = guardian.fetch_articles(days_back=days_back, page_size=200)
         
         if df.empty:
             logger.warning("No articles fetched!")
             return None, None, None, None, None
             
-        # Filter dataframe to match exact date range
+        # Filter to exact date range
         df = df[
             (df['published'].dt.date >= start_date_dt) &
             (df['published'].dt.date <= end_date_dt)
         ]
         
-        # Process texts
-        texts = df['content'].apply(lambda x: [
-            word.lower() for word in word_tokenize(str(x))
-            if word.isalnum() and word.lower() not in stop_words
-        ])
+        logger.info(f"Filtered to {len(df)} articles within date range")
+        
+        # Process texts with more efficient list comprehension
+        texts = [
+            [word.lower() for word in word_tokenize(str(content))
+             if word.isalnum() and word.lower() not in stop_words]
+            for content in df['content']
+        ]
         
         if len(texts) < 5:
             logger.warning("Not enough articles for analysis!")
@@ -95,13 +100,14 @@ def process_articles(start_date, end_date):
         dictionary = corpora.Dictionary(texts)
         corpus = [dictionary.doc2bow(text) for text in texts]
         
-        # Train LDA model
+        # Train LDA model with optimized parameters
         lda_model = models.LdaModel(
             corpus=corpus,
             num_topics=5,
             id2word=dictionary,
-            passes=20,  # Increased passes for better topic modeling
-            random_state=42
+            passes=20,
+            random_state=42,
+            chunksize=100  # Smaller chunks to avoid timeouts
         )
         
         logger.info(f"Successfully processed {len(df)} articles for the selected date range")
