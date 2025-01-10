@@ -248,9 +248,13 @@ def update_visualizations(start_date, end_date, selected_topics):
             
         df, texts, dictionary, corpus, lda_model = results
         
-        # Topic Distribution
+        # If no topics selected, show all topics
+        if not selected_topics:
+            selected_topics = list(range(lda_model.num_topics))
+        
+        # Topic Distribution - Now filtered by selected topics
         topic_terms = []
-        for topic_id in range(lda_model.num_topics):
+        for topic_id in selected_topics:  # Only include selected topics
             topic_terms.extend([(word, prob, topic_id) 
                               for word, prob in lda_model.show_topic(topic_id, topn=10)])
         
@@ -266,28 +270,52 @@ def update_visualizations(start_date, end_date, selected_topics):
         )
         dist_fig.update_layout(template='plotly_dark')
         
-        # Word Cloud
-        selected_topic = 0 if not selected_topics else selected_topics[0]
+        # Word Cloud - Already working with selected topics
+        selected_topic = selected_topics[0] if selected_topics else 0
         word_cloud_fig = create_word_cloud(lda_model.show_topic(selected_topic, topn=30))
         
-        # t-SNE
-        tsne_fig = create_tsne_visualization(corpus, lda_model, df)
-        
-        # Article Details
+        # t-SNE - Filter by selected topics
         doc_topics = []
+        doc_topic_mapping = []  # To track which topics each document belongs to
+        
         for doc in corpus:
+            topic_weights = [0] * lda_model.num_topics
+            for topic, weight in lda_model[doc]:
+                topic_weights[topic] = weight
+            doc_topics.append(topic_weights)
+            
+            # Get the dominant topic for this document
+            dominant_topic = max(range(len(topic_weights)), key=lambda i: topic_weights[i])
+            doc_topic_mapping.append(dominant_topic)
+        
+        # Filter documents by selected topics
+        mask = [idx for idx, topic in enumerate(doc_topic_mapping) if topic in selected_topics]
+        filtered_doc_topics = [doc_topics[i] for i in mask]
+        filtered_df = df.iloc[mask]
+        
+        tsne_fig = create_tsne_visualization(
+            [corpus[i] for i in mask],  # filtered corpus
+            lda_model,
+            filtered_df
+        )
+        
+        # Article Details - Filter by selected topics
+        doc_topics_info = []
+        for doc, main_topic in zip([corpus[i] for i in mask], [doc_topic_mapping[i] for i in mask]):
             topic_dist = lda_model.get_document_topics(doc)
-            doc_topics.append([
+            topic_info = [
                 f"Topic {topic+1}: {prob:.3f}"
                 for topic, prob in sorted(topic_dist, key=lambda x: x[1], reverse=True)
-            ])
+                if topic in selected_topics  # Only include selected topics
+            ]
+            doc_topics_info.append(topic_info)
         
         articles_data = [{
             'title': row['title'],
             'section': row['section'],
             'published': row['published'].strftime('%Y-%m-%d %H:%M'),
             'topics': '\n'.join(topics)
-        } for row, topics in zip(df.to_dict('records'), doc_topics)]
+        } for row, topics in zip(filtered_df.to_dict('records'), doc_topics_info)]
         
         logger.info("Successfully updated all visualizations")
         return dist_fig, word_cloud_fig, tsne_fig, articles_data
