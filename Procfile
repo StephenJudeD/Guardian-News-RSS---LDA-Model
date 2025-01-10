@@ -1,2 +1,1 @@
-# Procfile
-web: gunicorn app:server
+web: gunicorn app:server --timeout 120
