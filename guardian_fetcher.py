@@ -1,4 +1,4 @@
-# guardian_fetcher.py
+from functools import lru_cache
 import requests
 import pandas as pd
 from datetime import datetime, timedelta
@@ -9,29 +9,34 @@ class GuardianFetcher:
         self.api_key = api_key
         self.base_url = "https://content.guardianapis.com/search"
     
-    def fetch_articles(self, days_back=30, page_size=200):
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=days_back)
-        
+    @lru_cache(maxsize=32)
+    def _fetch_page(self, page, start_date_str, end_date_str, page_size):
+        """Cached method for fetching individual pages"""
         params = {
             'api-key': self.api_key,
             'show-fields': 'bodyText,headline,byline,wordcount,thumbnail',
             'page-size': page_size,
             'order-by': 'relevance',
-            'from-date': start_date.strftime('%Y-%m-%d'),
-            'to-date': end_date.strftime('%Y-%m-%d')
+            'from-date': start_date_str,
+            'to-date': end_date_str,
+            'page': page
         }
+        response = requests.get(self.base_url, params=params)
+        return response.json()['response']
+
+    def fetch_articles(self, days_back=30, page_size=200):
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=days_back)
+        start_date_str = start_date.strftime('%Y-%m-%d')
+        end_date_str = end_date.strftime('%Y-%m-%d')
 
         all_articles = []
         page = 1
         total_pages = 1
 
-        while page <= total_pages and page <= 5:  # Limit to 5 pages
-            params['page'] = page
+        while page <= total_pages and page <= 5:
             try:
-                response = requests.get(self.base_url, params=params)
-                response.raise_for_status()
-                data = response.json()['response']
+                data = self._fetch_page(page, start_date_str, end_date_str, page_size)
                 
                 if page == 1:
                     total_pages = min(data['pages'], 5)
