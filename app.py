@@ -54,7 +54,7 @@ stop_words = set(stopwords.words('english')).union(CUSTOM_STOP_WORDS)
 
 # Initialize
 guardian = GuardianFetcher(GUARDIAN_API_KEY)
-app = Dash(__name__, external_stylesheets=[dbc.themes.DARKLY])
+app = Dash(__name__, external_stylesheets=[dbc.themes.JOURNAL])
 server = app.server
 app.config.suppress_callback_exceptions = True
 
