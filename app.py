@@ -1,5 +1,6 @@
 # app.py
-from dash import Dash, html, dcc, Input, Output, State
+import dash
+from dash import Dash, html, dcc, Input, Output, State, dash_table
 import dash_bootstrap_components as dbc
 import plotly.express as px
 import plotly.graph_objects as go
@@ -11,37 +12,105 @@ import numpy as np
 from gensim import corpora, models
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
+from sklearn.manifold import TSNE
+from wordcloud import WordCloud
 import nltk
 import os
 from dotenv import load_dotenv
 from functools import lru_cache
 
-@lru_cache(maxsize=32)
-def process_articles(articles_df):
-    # Your processing code here
-    return processed_data
-    
-# Load local .env file if it exists (development)
-load_dotenv()
+# Enhanced stop words
+CUSTOM_STOP_WORDS = {
+    'says', 'said', 'would', 'also', 'one', 'new',
+    'us', 'people', 'government', 'could', 'will',
+    'may', 'like', 'get', 'make', 'first', 'two',
+    'year', 'years', 'time', 'way', 'says', 'trump',
+    'according', 'told', 'reuters', 'says', 'guardian',
+    'monday', 'tuesday', 'wednesday', 'thursday', 'friday',
+    'saturday', 'sunday', 'week', 'month'
+}
 
-# Get API key from environment (works with Heroku config vars)
+# Setup
+load_dotenv()
 GUARDIAN_API_KEY = os.getenv('GUARDIAN_API_KEY')
 if not GUARDIAN_API_KEY:
     raise ValueError("⚠️ No GUARDIAN_API_KEY found in environment!")
 
-# For Heroku's port binding
-port = int(os.getenv('PORT', 8050))
-
-# Download NLTK data
 nltk.download('punkt')
 nltk.download('stopwords')
+stop_words = set(stopwords.words('english')).union(CUSTOM_STOP_WORDS)
 
-# Initialize the Guardian fetcher
+# Initialize
 guardian = GuardianFetcher(GUARDIAN_API_KEY)
-
-# Initialize Dash app
 app = Dash(__name__, external_stylesheets=[dbc.themes.DARKLY])
 server = app.server
+
+@lru_cache(maxsize=32)
+def process_articles(start_date, end_date):
+    df = guardian.fetch_articles(days_back=7, page_size=50)
+    
+    texts = df['content'].apply(lambda x: [
+        word.lower() for word in word_tokenize(str(x))
+        if word.isalnum() and word.lower() not in stop_words
+    ])
+    
+    dictionary = corpora.Dictionary(texts)
+    corpus = [dictionary.doc2bow(text) for text in texts]
+    
+    lda_model = models.LdaModel(
+        corpus=corpus,
+        num_topics=5,
+        id2word=dictionary,
+        passes=15,
+        random_state=42
+    )
+    
+    return df, texts, dictionary, corpus, lda_model
+
+def create_word_cloud(topic_words):
+    wc = WordCloud(
+        background_color='black',
+        width=800,
+        height=400,
+        colormap='viridis'
+    ).generate_from_frequencies(dict(topic_words))
+    
+    fig = px.imshow(wc)
+    fig.update_layout(
+        template='plotly_dark',
+        title="Topic Word Cloud"
+    )
+    return fig
+
+def create_tsne_visualization(corpus, lda_model, df):
+    doc_topics = []
+    for doc in corpus:
+        topic_weights = [0] * lda_model.num_topics
+        for topic, weight in lda_model[doc]:
+            topic_weights[topic] = weight
+        doc_topics.append(topic_weights)
+    
+    tsne = TSNE(n_components=2, random_state=42)
+    topic_coords = tsne.fit_transform(doc_topics)
+    
+    df_viz = pd.DataFrame({
+        'x': topic_coords[:, 0],
+        'y': topic_coords[:, 1],
+        'topic': [doc_topics[i].index(max(doc_topics[i])) + 1 for i in range(len(doc_topics))],
+        'title': df['title']
+    })
+    
+    fig = px.scatter(
+        df_viz,
+        x='x',
+        y='y',
+        color='topic',
+        hover_data=['title'],
+        title='t-SNE Topic Clustering'
+    )
+    
+    fig.update_layout(template='plotly_dark')
+    return fig
 
 # Layout
 app.layout = dbc.Container([
@@ -60,21 +129,16 @@ app.layout = dbc.Container([
                     html.H4("Controls", className="card-title"),
                     dcc.DatePickerRange(
                         id='date-range',
-                        start_date=(datetime.now() - timedelta(days=30)).date(),
+                        start_date=(datetime.now() - timedelta(days=7)).date(),
                         end_date=datetime.now().date(),
                         className="mb-3"
                     ),
-                    dcc.Slider(
-                        id='topic-slider',
-                        min=2, max=10,
-                        value=5,
-                        marks={i: str(i) for i in range(2, 11)},
+                    dcc.Dropdown(
+                        id='topic-filter',
+                        options=[{'label': f'Topic {i+1}', 'value': i} for i in range(5)],
+                        multi=True,
+                        placeholder="Filter by topics...",
                         className="mb-3"
-                    ),
-                    dcc.Loading(
-                        id="loading-1",
-                        type="default",
-                        children=html.Div(id="loading-output")
                     )
                 ])
             ], className="mb-4")
@@ -83,135 +147,100 @@ app.layout = dbc.Container([
     
     dbc.Row([
         dbc.Col([
-            dcc.Graph(id='topic-explorer')
+            dcc.Graph(id='topic-distribution')
+        ], width=6),
+        dbc.Col([
+            dcc.Graph(id='word-cloud')
+        ], width=6)
+    ]),
+    
+    dbc.Row([
+        dbc.Col([
+            dcc.Graph(id='tsne-plot')
+        ])
+    ]),
+    
+    dbc.Row([
+        dbc.Col([
+            dash_table.DataTable(
+                id='article-details',
+                columns=[
+                    {'name': 'Title', 'id': 'title'},
+                    {'name': 'Section', 'id': 'section'},
+                    {'name': 'Published', 'id': 'published'},
+                    {'name': 'Topics', 'id': 'topics'}
+                ],
+                style_table={'overflowX': 'auto'},
+                style_cell={
+                    'backgroundColor': 'rgb(50, 50, 50)',
+                    'color': 'white',
+                    'textAlign': 'left'
+                },
+                style_header={
+                    'backgroundColor': 'rgb(30, 30, 30)',
+                    'fontWeight': 'bold'
+                },
+                page_size=10
+            )
         ])
     ])
 ])
 
 @app.callback(
-    Output('topic-explorer', 'figure'),
+    [Output('topic-distribution', 'figure'),
+     Output('word-cloud', 'figure'),
+     Output('tsne-plot', 'figure'),
+     Output('article-details', 'data')],
     [Input('date-range', 'start_date'),
      Input('date-range', 'end_date'),
-     Input('topic-slider', 'value')]
+     Input('topic-filter', 'value')]
 )
-def update_topics(start_date, end_date, num_topics):
-    # Fetch articles
-    df = guardian.fetch_articles(days_back=30)
+def update_visualizations(start_date, end_date, selected_topics):
+    df, texts, dictionary, corpus, lda_model = process_articles(start_date, end_date)
     
-    # Preprocessing
-    stop_words = set(stopwords.words('english'))
-    texts = df['content'].apply(lambda x: [
-        word.lower() for word in word_tokenize(str(x))
-        if word.isalnum() and word.lower() not in stop_words
-    ])
+    # Topic Distribution
+    topic_terms = []
+    for topic_id in range(lda_model.num_topics):
+        topic_terms.extend([(word, prob, topic_id) 
+                          for word, prob in lda_model.show_topic(topic_id, topn=10)])
     
-    # Create dictionary and corpus
-    dictionary = corpora.Dictionary(texts)
-    corpus = [dictionary.doc2bow(text) for text in texts]
+    topic_df = pd.DataFrame(topic_terms, columns=['word', 'probability', 'topic'])
     
-    # Train LDA model
-    lda_model = models.LdaModel(
-        corpus=corpus,
-        num_topics=num_topics,
-        id2word=dictionary,
-        passes=10
+    dist_fig = px.bar(
+        topic_df,
+        x='probability',
+        y='word',
+        color='topic',
+        orientation='h',
+        title='Topic Word Distributions'
     )
+    dist_fig.update_layout(template='plotly_dark')
     
-    # Create visualization
-    fig = create_interactive_topic_explorer(lda_model, corpus, dictionary, df)
+    # Word Cloud
+    selected_topic = 0 if not selected_topics else selected_topics[0]
+    word_cloud_fig = create_word_cloud(lda_model.show_topic(selected_topic, topn=30))
     
-    return fig
-
-def create_interactive_topic_explorer(lda_model, corpus, dictionary, df, num_words=10):
-    # Get document-topic distributions
+    # t-SNE
+    tsne_fig = create_tsne_visualization(corpus, lda_model, df)
+    
+    # Article Details
     doc_topics = []
     for doc in corpus:
-        topic_weights = [0] * lda_model.num_topics
-        for topic, weight in lda_model[doc]:
-            topic_weights[topic] = weight
-        doc_topics.append(topic_weights)
+        topic_dist = lda_model.get_document_topics(doc)
+        doc_topics.append([
+            f"Topic {topic+1}: {prob:.3f}"
+            for topic, prob in sorted(topic_dist, key=lambda x: x[1], reverse=True)
+        ])
     
-    # Create subplots
-    fig = make_subplots(
-        rows=2, cols=2,
-        specs=[[{"colspan": 2}, None],
-               [{"type": "table"}, {"type": "table"}]],
-        subplot_titles=("Topic Word Distributions", "Article Details"),
-        vertical_spacing=0.1
-    )
+    articles_data = [{
+        'title': row['title'],
+        'section': row['section'],
+        'published': row['published'].strftime('%Y-%m-%d %H:%M'),
+        'topics': '\n'.join(topics)
+    } for row, topics in zip(df.to_dict('records'), doc_topics)]
     
-    colors = px.colors.qualitative.Set3
-    
-    # Add topic bars
-    for topic_idx in range(lda_model.num_topics):
-        topic_words = lda_model.show_topic(topic_idx, num_words)
-        words, probs = zip(*topic_words)
-        
-        fig.add_trace(
-            go.Bar(
-                x=probs,
-                y=words,
-                orientation='h',
-                name=f'Topic {topic_idx + 1}',
-                marker_color=colors[topic_idx % len(colors)],
-                customdata=[[topic_idx, w] for w in words],
-                hovertemplate=(
-                    "<b>Topic %{customdata[0]}</b><br>" +
-                    "Word: %{y}<br>" +
-                    "Probability: %{x:.3f}<br>" +
-                    "<extra></extra>"
-                )
-            ),
-            row=1, col=1
-        )
-    
-    # Add article details
-    articles_data = pd.DataFrame({
-        'Title': df['title'],
-        'Section': df['section'],
-        'Published': df['published'].dt.strftime('%Y-%m-%d %H:%M'),
-        'Topic Distribution': [
-            '<br>'.join([f'Topic {i+1}: {w:.3f}' 
-                        for i, w in enumerate(weights)])
-            for weights in doc_topics
-        ]
-    })
-    
-    fig.add_trace(
-        go.Table(
-            header=dict(
-                values=list(articles_data.columns),
-                fill_color='rgba(50, 50, 50, 0.8)',
-                align=['left'] * 4,
-                font=dict(color='white', size=12)
-            ),
-            cells=dict(
-                values=[articles_data[col] for col in articles_data.columns],
-                fill_color='rgba(30, 30, 30, 0.8)',
-                align=['left'] * 4,
-                font=dict(color='white', size=11),
-                height=30
-            )
-        ),
-        row=2, col=1
-    )
-    
-    # Update layout
-    fig.update_layout(
-        height=1000,
-        template='plotly_dark',
-        showlegend=True,
-        title={
-            'text': 'Interactive Topic Explorer',
-            'y':0.98,
-            'x':0.5,
-            'xanchor': 'center',
-            'yanchor': 'top',
-            'font': dict(size=24)
-        }
-    )
-    
-    return fig
+    return dist_fig, word_cloud_fig, tsne_fig, articles_data
 
 if __name__ == '__main__':
-    app.run_server(debug=True)
+    port = int(os.getenv('PORT', 8050))
+    app.run_server(debug=True, port=port)
