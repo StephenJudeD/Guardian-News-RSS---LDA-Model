@@ -63,15 +63,13 @@ def process_articles(start_date, end_date):
     try:
         logger.info(f"Fetching articles from {start_date} to {end_date}")
         
-        # Convert string dates to datetime objects
+        # Date calculations
         start_date_dt = datetime.strptime(start_date, '%Y-%m-%d').date()
         end_date_dt = datetime.strptime(end_date, '%Y-%m-%d').date()
-        days_back = min((datetime.now().date() - start_date_dt).days + 1, 30)  # Limit to 30 days
+        days_back = (datetime.now().date() - start_date_dt).days + 1
         
-        logger.info(f"Calculated days_back: {days_back}")
-        
-        # Fetch articles with smaller batch size
-        df = guardian.fetch_articles(days_back=days_back, page_size=100)  # Reduced page size
+        # Fetch articles
+        df = guardian.fetch_articles(days_back=days_back, page_size=200)
         
         if df.empty:
             logger.warning("No articles fetched!")
@@ -81,37 +79,36 @@ def process_articles(start_date, end_date):
         df = df[
             (df['published'].dt.date >= start_date_dt) &
             (df['published'].dt.date <= end_date_dt)
-        ].head(100)  # Limit to 100 articles for faster processing
+        ]
         
         logger.info(f"Filtered to {len(df)} articles within date range")
         
-        # Process texts with more efficient list comprehension
-        texts = [
-            [word.lower() for word in word_tokenize(str(content))[:500]]  # Limit tokens
-            for content in df['content']
-            if word.isalnum() and word.lower() not in stop_words
-        ]
+        # Fix the text processing - This was the bug!
+        texts = []
+        for content in df['content']:
+            if pd.isna(content):
+                continue
+            words = word_tokenize(str(content))
+            filtered_words = [word.lower() for word in words 
+                            if word.isalnum() and word.lower() not in stop_words]
+            texts.append(filtered_words)
         
         if len(texts) < 5:
             logger.warning("Not enough articles for analysis!")
             return None, None, None, None, None
         
-        # Create dictionary and corpus with optimized parameters
+        # Create dictionary and corpus
         dictionary = corpora.Dictionary(texts)
-        dictionary.filter_extremes(no_below=2, no_above=0.9)  # Filter rare and common words
         corpus = [dictionary.doc2bow(text) for text in texts]
         
-        # Train LDA model with faster parameters
+        # Train LDA model
         lda_model = models.LdaModel(
             corpus=corpus,
             num_topics=5,
             id2word=dictionary,
-            passes=10,  # Reduced passes
-            iterations=50,  # Reduced iterations
+            passes=20,
             random_state=42,
-            chunksize=20,  # Smaller chunks
-            alpha='auto',
-            per_word_topics=False  # Faster processing
+            chunksize=100
         )
         
         logger.info(f"Successfully processed {len(df)} articles")
