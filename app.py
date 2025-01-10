@@ -66,12 +66,12 @@ def process_articles(start_date, end_date):
         # Convert string dates to datetime objects
         start_date_dt = datetime.strptime(start_date, '%Y-%m-%d').date()
         end_date_dt = datetime.strptime(end_date, '%Y-%m-%d').date()
-        days_back = (datetime.now().date() - start_date_dt).days + 1  # Add 1 to include start date
+        days_back = min((datetime.now().date() - start_date_dt).days + 1, 30)  # Limit to 30 days
         
         logger.info(f"Calculated days_back: {days_back}")
         
-        # Fetch articles
-        df = guardian.fetch_articles(days_back=days_back, page_size=200)
+        # Fetch articles with smaller batch size
+        df = guardian.fetch_articles(days_back=days_back, page_size=100)  # Reduced page size
         
         if df.empty:
             logger.warning("No articles fetched!")
@@ -81,36 +81,40 @@ def process_articles(start_date, end_date):
         df = df[
             (df['published'].dt.date >= start_date_dt) &
             (df['published'].dt.date <= end_date_dt)
-        ]
+        ].head(100)  # Limit to 100 articles for faster processing
         
         logger.info(f"Filtered to {len(df)} articles within date range")
         
         # Process texts with more efficient list comprehension
         texts = [
-            [word.lower() for word in word_tokenize(str(content))
-             if word.isalnum() and word.lower() not in stop_words]
+            [word.lower() for word in word_tokenize(str(content))[:500]]  # Limit tokens
             for content in df['content']
+            if word.isalnum() and word.lower() not in stop_words
         ]
         
         if len(texts) < 5:
             logger.warning("Not enough articles for analysis!")
             return None, None, None, None, None
         
-        # Create dictionary and corpus
+        # Create dictionary and corpus with optimized parameters
         dictionary = corpora.Dictionary(texts)
+        dictionary.filter_extremes(no_below=2, no_above=0.9)  # Filter rare and common words
         corpus = [dictionary.doc2bow(text) for text in texts]
         
-        # Train LDA model with optimized parameters
+        # Train LDA model with faster parameters
         lda_model = models.LdaModel(
             corpus=corpus,
             num_topics=5,
             id2word=dictionary,
-            passes=20,
+            passes=10,  # Reduced passes
+            iterations=50,  # Reduced iterations
             random_state=42,
-            chunksize=100  # Smaller chunks to avoid timeouts
+            chunksize=20,  # Smaller chunks
+            alpha='auto',
+            per_word_topics=False  # Faster processing
         )
         
-        logger.info(f"Successfully processed {len(df)} articles for the selected date range")
+        logger.info(f"Successfully processed {len(df)} articles")
         return df, texts, dictionary, corpus, lda_model
         
     except Exception as e:
