@@ -62,7 +62,7 @@ app.config.suppress_callback_exceptions = True
 def process_articles(start_date, end_date):
     try:
         logger.info(f"Fetching articles from {start_date} to {end_date}")
-        df = guardian.fetch_articles(days_back=7, page_size=50)
+        df = guardian.fetch_articles(days_back=30, page_size=200)  # Updated values
         
         if df.empty:
             logger.warning("No articles fetched!")
@@ -165,27 +165,39 @@ app.layout = dbc.Container([
     ]),
     
     dbc.Row([
-        dbc.Col([
-            dbc.Card([
-                dbc.CardBody([
-                    html.H4("Controls", className="card-title"),
-                    dcc.DatePickerRange(
-                        id='date-range',
-                        start_date=(datetime.now() - timedelta(days=7)).date(),
-                        end_date=datetime.now().date(),
-                        className="mb-3"
-                    ),
-                    dcc.Dropdown(
-                        id='topic-filter',
-                        options=[{'label': f'Topic {i+1}', 'value': i} for i in range(5)],
-                        multi=True,
-                        placeholder="Filter by topics...",
-                        className="mb-3"
-                    )
-                ])
-            ], className="mb-4")
-        ])
-    ]),
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.H4("Controls", className="card-title"),
+                        # New date selection buttons
+                        dbc.RadioItems(
+                            id='date-select-buttons',
+                            options=[
+                                {'label': 'Last Day', 'value': 'last_day'},
+                                {'label': 'Last Week', 'value': 'last_week'},
+                                {'label': 'Last Month', 'value': 'last_month'},
+                            ],
+                            value='last_month',
+                            inline=True,
+                            className="mb-3"
+                        ),
+                        dcc.DatePickerRange(
+                            id='date-range',
+                            start_date=(datetime.now() - timedelta(days=30)).date(),
+                            end_date=datetime.now().date(),
+                            className="mb-3"
+                        ),
+                        dcc.Dropdown(
+                            id='topic-filter',
+                            options=[{'label': f'Topic {i+1}', 'value': i} for i in range(5)],
+                            multi=True,
+                            placeholder="Filter by topics...",
+                            className="mb-3"
+                        )
+                    ])
+                ], className="mb-4")
+            ])
+        ]),
     
     dbc.Row([
         dbc.Col([
