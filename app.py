@@ -58,16 +58,30 @@ app = Dash(__name__, external_stylesheets=[dbc.themes.DARKLY])
 server = app.server
 app.config.suppress_callback_exceptions = True
 
-@lru_cache(maxsize=32)
+@lru_cache(maxsize=64)  # Increased cache size for better performance
 def process_articles(start_date, end_date):
     try:
         logger.info(f"Fetching articles from {start_date} to {end_date}")
-        df = guardian.fetch_articles(days_back=30, page_size=200)  # Updated values
+        
+        # Calculate days_back based on the start date
+        start_date_dt = datetime.strptime(start_date, '%Y-%m-%d').date()
+        end_date_dt = datetime.strptime(end_date, '%Y-%m-%d').date()
+        days_back = (datetime.now().date() - start_date_dt).days
+        
+        # Fetch articles with calculated days_back
+        df = guardian.fetch_articles(days_back=days_back, page_size=200)
         
         if df.empty:
             logger.warning("No articles fetched!")
             return None, None, None, None, None
             
+        # Filter dataframe to match exact date range
+        df = df[
+            (df['published'].dt.date >= start_date_dt) &
+            (df['published'].dt.date <= end_date_dt)
+        ]
+        
+        # Process texts
         texts = df['content'].apply(lambda x: [
             word.lower() for word in word_tokenize(str(x))
             if word.isalnum() and word.lower() not in stop_words
@@ -77,17 +91,20 @@ def process_articles(start_date, end_date):
             logger.warning("Not enough articles for analysis!")
             return None, None, None, None, None
         
+        # Create dictionary and corpus
         dictionary = corpora.Dictionary(texts)
         corpus = [dictionary.doc2bow(text) for text in texts]
         
+        # Train LDA model
         lda_model = models.LdaModel(
             corpus=corpus,
             num_topics=5,
             id2word=dictionary,
-            passes=15,
+            passes=20,  # Increased passes for better topic modeling
             random_state=42
         )
         
+        logger.info(f"Successfully processed {len(df)} articles for the selected date range")
         return df, texts, dictionary, corpus, lda_model
         
     except Exception as e:
@@ -239,6 +256,27 @@ app.layout = dbc.Container([
         ])
     ])
 ])
+
+
+@app.callback(
+    [Output('date-range', 'start_date'),
+     Output('date-range', 'end_date')],
+    [Input('date-select-buttons', 'value')]
+)
+def update_date_range(selected_range):
+    end_date = datetime.now().date()
+    
+    if selected_range == 'last_day':
+        start_date = end_date - timedelta(days=1)
+    elif selected_range == 'last_week':
+        start_date = end_date - timedelta(days=7)
+    elif selected_range == 'last_month':
+        start_date = end_date - timedelta(days=30)
+    else:
+        start_date = end_date - timedelta(days=30)  # default to last month
+        
+    return start_date, end_date
+
 
 @app.callback(
     [Output('topic-distribution', 'figure'),
