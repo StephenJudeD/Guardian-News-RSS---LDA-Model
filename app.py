@@ -122,13 +122,16 @@ def create_tsne_visualization(corpus, lda_model, df):
                 topic_weights[topic] = weight
             doc_topics.append(topic_weights)
         
+        # Convert list to numpy array before TSNE
+        doc_topics_array = np.array(doc_topics)
+        
         tsne = TSNE(n_components=2, random_state=42)
-        topic_coords = tsne.fit_transform(doc_topics)
+        topic_coords = tsne.fit_transform(doc_topics_array)  # Now using numpy array
         
         df_viz = pd.DataFrame({
             'x': topic_coords[:, 0],
             'y': topic_coords[:, 1],
-            'topic': [doc_topics[i].index(max(doc_topics[i])) + 1 for i in range(len(doc_topics))],
+            'topic': [np.argmax(doc_topics[i]) + 1 for i in range(len(doc_topics))],
             'title': df['title']
         })
         
@@ -141,7 +144,11 @@ def create_tsne_visualization(corpus, lda_model, df):
             title='t-SNE Topic Clustering'
         )
         
-        fig.update_layout(template='plotly_dark')
+        fig.update_layout(
+            template='plotly_dark',
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)'
+        )
         return fig
     except Exception as e:
         logger.error(f"Error creating t-SNE visualization: {str(e)}", exc_info=True)
