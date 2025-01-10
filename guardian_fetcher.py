@@ -34,12 +34,12 @@ class GuardianFetcher:
         page = 1
         total_pages = 1
 
-        while page <= total_pages and page <= 5:
+        while page <= total_pages and page <= 2:
             try:
                 data = self._fetch_page(page, start_date_str, end_date_str, page_size)
                 
                 if page == 1:
-                    total_pages = min(data['pages'], 5)
+                    total_pages = min(data['pages'], 2)
                 
                 for article in data['results']:
                     if 'fields' in article:
