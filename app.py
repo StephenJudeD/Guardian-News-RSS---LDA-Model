@@ -14,7 +14,13 @@ from nltk.corpus import stopwords
 import nltk
 import os
 from dotenv import load_dotenv
+from functools import lru_cache
 
+@lru_cache(maxsize=32)
+def process_articles(articles_df):
+    # Your processing code here
+    return processed_data
+    
 # Load local .env file if it exists (development)
 load_dotenv()
 
