@@ -15,9 +15,16 @@ import nltk
 import os
 from dotenv import load_dotenv
 
-# Load environment variables
+# Load local .env file if it exists (development)
 load_dotenv()
+
+# Get API key from environment (works with Heroku config vars)
 GUARDIAN_API_KEY = os.getenv('GUARDIAN_API_KEY')
+if not GUARDIAN_API_KEY:
+    raise ValueError("⚠️ No GUARDIAN_API_KEY found in environment!")
+
+# For Heroku's port binding
+port = int(os.getenv('PORT', 8050))
 
 # Download NLTK data
 nltk.download('punkt')
