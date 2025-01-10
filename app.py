@@ -129,13 +129,13 @@ def create_word_cloud(topic_words):
         
         fig = px.imshow(wc)
         fig.update_layout(
-            template='plotly_dark',
+            template='plotly',
             title="Topic Word Cloud"
         )
         return fig
     except Exception as e:
         logger.error(f"Error creating word cloud: {str(e)}", exc_info=True)
-        return go.Figure().update_layout(template='plotly_dark')
+        return go.Figure().update_layout(template='plotly')
 
 def create_tsne_visualization(corpus, lda_model, df):
     try:
@@ -169,14 +169,14 @@ def create_tsne_visualization(corpus, lda_model, df):
         )
         
         fig.update_layout(
-            template='plotly_dark',
+            template='plotly',
             plot_bgcolor='rgba(0,0,0,0)',
             paper_bgcolor='rgba(0,0,0,0)'
         )
         return fig
     except Exception as e:
         logger.error(f"Error creating t-SNE visualization: {str(e)}", exc_info=True)
-        return go.Figure().update_layout(template='plotly_dark')
+        return go.Figure().update_layout(template='plotly')
 
 # Layout
 app.layout = dbc.Container([
@@ -325,7 +325,7 @@ def update_visualizations(start_date, end_date, selected_topics):
             orientation='h',
             title='Topic Word Distributions'
         )
-        dist_fig.update_layout(template='plotly_dark')
+        dist_fig.update_layout(template='plotly')
         
         # Word Cloud - Already working with selected topics
         selected_topic = selected_topics[0] if selected_topics else 0
@@ -379,7 +379,7 @@ def update_visualizations(start_date, end_date, selected_topics):
         
     except Exception as e:
         logger.error(f"Main callback error: {str(e)}", exc_info=True)
-        empty_fig = go.Figure().update_layout(template='plotly_dark')
+        empty_fig = go.Figure().update_layout(template='plotly')
         return empty_fig, empty_fig, empty_fig, []
 
 if __name__ == '__main__':
