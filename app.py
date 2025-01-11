@@ -1,21 +1,8 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-"""
-Below is the full, corrected Dash code that:
-1) Resets the filtered DataFrame’s index before referencing corpus.
-2) Converts doc_topics to a NumPy array for t-SNE.
-3) Adjusts perplexity if fewer than 30 documents exist.
-4) Avoids "list index out of range" by ensuring df.index matches corpus.
-
-Please replace your existing app.py (or code) with this version.
-"""
-
 import dash
 from dash import Dash, html, dcc, Input, Output, State, dash_table
 import dash_bootstrap_components as dbc
 import plotly.express as px
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 from guardian_fetcher import GuardianFetcher
 from datetime import datetime, timedelta
 import pandas as pd
@@ -31,7 +18,9 @@ from dotenv import load_dotenv
 from functools import lru_cache
 import logging
 
-# Configure logging
+# ─────────────────────────────────────────────────────────────────────
+# Logging setup
+# ─────────────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -42,7 +31,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Enhanced stop words
+# ─────────────────────────────────────────────────────────────────────
+# Stop words
+# ─────────────────────────────────────────────────────────────────────
 CUSTOM_STOP_WORDS = {
     'says', 'said', 'would', 'also', 'one', 'new',
     'us', 'people', 'government', 'could', 'will',
@@ -53,97 +44,109 @@ CUSTOM_STOP_WORDS = {
     'saturday', 'sunday', 'week', 'month'
 }
 
-# Load environment variables
+# ─────────────────────────────────────────────────────────────────────
+# Environment variables & NLTK
+# ─────────────────────────────────────────────────────────────────────
 load_dotenv()
 GUARDIAN_API_KEY = os.getenv('GUARDIAN_API_KEY')
 if not GUARDIAN_API_KEY:
     logger.error("⚠️ No GUARDIAN_API_KEY found in environment!")
-    raise ValueError("⚠️ No GUARDIAN_API_KEY found in environment!")
+    raise ValueError("No GUARDIAN_API_KEY found in environment!")
 
-# NLTK tokenizers
 nltk.download('punkt')
 nltk.download('stopwords')
 stop_words = set(stopwords.words('english')).union(CUSTOM_STOP_WORDS)
 
-# Initialize GuardianFetcher
+# ─────────────────────────────────────────────────────────────────────
+# GuardianFetcher (expects a .py that fetches articles)
+# ─────────────────────────────────────────────────────────────────────
 guardian = GuardianFetcher(GUARDIAN_API_KEY)
 
-# Initialize Dash
+# ─────────────────────────────────────────────────────────────────────
+# Dash App Setup
+# ─────────────────────────────────────────────────────────────────────
 app = Dash(__name__, external_stylesheets=[dbc.themes.JOURNAL])
 server = app.server
 app.config.suppress_callback_exceptions = True
 
+# ─────────────────────────────────────────────────────────────────────
+# Data Processing
+# ─────────────────────────────────────────────────────────────────────
 @lru_cache(maxsize=64)
 def process_articles(start_date, end_date):
     """
-    Fetch and process Guardian articles from start_date to end_date.
-    Returns DataFrame, texts, dictionary, corpus, lda_model.
+    Fetch articles from Guardian, filter by date,
+    tokenize, train LDA, return (df, texts, dictionary, corpus, lda_model).
+    We keep LDA passes low to avoid hitting Heroku 30s timeouts.
     """
     try:
         logger.info(f"Fetching articles from {start_date} to {end_date}")
         
+        # Date parsing
         start_date_dt = datetime.strptime(start_date, '%Y-%m-%d').date()
         end_date_dt = datetime.strptime(end_date, '%Y-%m-%d').date()
         days_back = (datetime.now().date() - start_date_dt).days + 1
         
-        # Fetch articles
+        # Fetch the articles
         df = guardian.fetch_articles(days_back=days_back, page_size=200)
         if df.empty:
             logger.warning("No articles fetched!")
             return None, None, None, None, None
         
-        # Filter to exact date range
+        # Filter to date range
         df = df[
             (df['published'].dt.date >= start_date_dt) &
             (df['published'].dt.date <= end_date_dt)
         ]
         logger.info(f"Filtered to {len(df)} articles within date range")
+        if len(df) < 5:
+            logger.warning("Not enough articles for meaningful LDA.")
+            return None, None, None, None, None
         
-        # Process text
+        # Reset index so df.index is 0..(len(df)-1)
+        df.reset_index(drop=True, inplace=True)
+        
+        # Tokenize and remove stop words
         texts = []
-        for i in df.index:
+        for i in range(len(df)):
             content = df.at[i, 'content']
             if pd.isna(content):
                 texts.append([])
                 continue
             words = word_tokenize(str(content))
-            filtered_words = [
-                w.lower() for w in words 
+            filtered = [
+                w.lower() for w in words
                 if w.isalnum() and w.lower() not in stop_words
             ]
-            texts.append(filtered_words)
+            texts.append(filtered)
         
-        if len(df) < 5:
-            logger.warning("Not enough articles for analysis!")
-            return None, None, None, None, None
-        
-        # Reset index so df.index will be 0..(len(df)-1)
-        df.reset_index(drop=True, inplace=True)
-        
-        # Build dictionary & corpus
+        # Gensim dictionary + corpus
         dictionary = corpora.Dictionary(texts)
         corpus = [dictionary.doc2bow(t) for t in texts]
         
-        # Train LDA model
+        # Train LDA with fewer passes => faster on Heroku
+        # e.g. passes=5 or 10 instead of 20
         lda_model = models.LdaModel(
             corpus=corpus,
             num_topics=5,
             id2word=dictionary,
-            passes=20,
+            passes=10,
             random_state=42,
             chunksize=100
         )
         
         logger.info(f"Successfully processed {len(df)} articles")
         return df, texts, dictionary, corpus, lda_model
-    
     except Exception as e:
-        logger.error(f"Error in process_articles: {str(e)}", exc_info=True)
+        logger.error(f"Error in process_articles: {e}", exc_info=True)
         return None, None, None, None, None
 
+# ─────────────────────────────────────────────────────────────────────
+# Visualization Helpers
+# ─────────────────────────────────────────────────────────────────────
 def create_word_cloud(topic_words):
     """
-    Create a WordCloud figure from LDA topic word list.
+    Build a word cloud from topic words (list of (word, prob) pairs).
     """
     try:
         freq_dict = dict(topic_words)
@@ -153,60 +156,68 @@ def create_word_cloud(topic_words):
             height=400,
             colormap='viridis'
         ).generate_from_frequencies(freq_dict)
-        
         fig = px.imshow(wc)
         fig.update_layout(template='plotly', title="Topic Word Cloud")
         fig.update_xaxes(showticklabels=False)
         fig.update_yaxes(showticklabels=False)
         return fig
     except Exception as e:
-        logger.error(f"Error creating word cloud: {str(e)}", exc_info=True)
+        logger.error(f"Error creating word cloud: {e}", exc_info=True)
         return go.Figure().update_layout(template='plotly')
 
 def create_tsne_visualization(df, corpus, lda_model):
     """
-    Create t-SNE scatter from the filtered df and the corpus.
-    Expects df.index to match corpus indexing (after df.reset_index).
+    Construct a t-SNE scatter plot from LDA topic vectors.
+    Use n_jobs=1 to avoid CPU detection errors on Heroku.
     """
     try:
-        # Build doc_topics from each doc in the corpus, 
-        # using df.index as the reference
-        doc_topics = []
-        for i in df.index:  # now i goes from 0..len(df)-1
-            topic_weights = [0.0] * lda_model.num_topics
-            for t_id, weight in lda_model[corpus[i]]:
-                topic_weights[t_id] = weight
-            doc_topics.append(topic_weights)
+        if df is None or len(df) < 2:
+            return go.Figure().update_layout(
+                template='plotly',
+                title='Not enough documents for t-SNE'
+            )
         
-        doc_topics_array = np.array(doc_topics, dtype=np.float32)
+        # Build doc_topics from corpus
+        doc_topics_list = []
+        for i in df.index:  # i = 0..(len(df)-1)
+            topic_weights = [0.0]*lda_model.num_topics
+            for topic_id, w in lda_model[corpus[i]]:
+                topic_weights[topic_id] = w
+            doc_topics_list.append(topic_weights)
         
-        # If fewer than 2 docs, skip TSNE
-        if doc_topics_array.shape[0] < 2:
-            fig = go.Figure().update_layout(template='plotly', 
-                                            title='Not enough documents for t-SNE')
-            return fig
+        doc_topics_array = np.array(doc_topics_list, dtype=np.float32)
+        # If fewer than 2 docs => skip
+        if len(doc_topics_array) < 2:
+            return go.Figure().update_layout(
+                template='plotly',
+                title='Not enough docs for t-SNE'
+            )
         
-        # Safely adjust perplexity
+        # Adjust perplexity
         perplex_val = 30
-        if doc_topics_array.shape[0] < 30:
-            perplex_val = max(2, doc_topics_array.shape[0] - 1)
+        if len(doc_topics_array) < 30:
+            perplex_val = max(2, len(doc_topics_array) - 1)
         
-        tsne = TSNE(n_components=2, random_state=42, perplexity=perplex_val)
-        topics_2d = tsne.fit_transform(doc_topics_array)
+        # Set n_jobs=1 to avoid CPU detection errors
+        tsne = TSNE(
+            n_components=2,
+            random_state=42,
+            perplexity=perplex_val,
+            n_jobs=1
+        )
+        embedded = tsne.fit_transform(doc_topics_array)
         
-        temp_df = pd.DataFrame({
-            'x': topics_2d[:, 0],
-            'y': topics_2d[:, 1],
-            # +1 for a human-readable topic label
-            'dominant_topic': [np.argmax(doc_topics[i]) + 1 for i in range(len(doc_topics))],
-            'doc_index': df.index,  # store actual index
+        scatter_df = pd.DataFrame({
+            'x': embedded[:, 0],
+            'y': embedded[:, 1],
+            'dominant_topic': [np.argmax(arr) + 1 for arr in doc_topics_array],
+            'doc_index': df.index,
             'title': df['title']
         })
         
         fig = px.scatter(
-            temp_df,
-            x='x',
-            y='y',
+            scatter_df,
+            x='x', y='y',
             color='dominant_topic',
             hover_data=['title'],
             title='t-SNE Topic Clustering',
@@ -215,14 +226,12 @@ def create_tsne_visualization(df, corpus, lda_model):
         fig.update_layout(template='plotly')
         return fig
     except Exception as e:
-        logger.error(f"Error creating t-SNE visualization: {str(e)}", exc_info=True)
-        fig = go.Figure().update_layout(template='plotly', title=f"t-SNE Error: {e}")
-        return fig
+        logger.error(f"Error creating t-SNE: {e}", exc_info=True)
+        return go.Figure().update_layout(template='plotly', title=f"t-SNE Error: {e}")
 
-###########################################
-# LAYOUT
-###########################################
-
+# ─────────────────────────────────────────────────────────────────────
+# Layout
+# ─────────────────────────────────────────────────────────────────────
 navbar = dbc.NavbarSimple(
     brand="Guardian News Topic Explorer",
     brand_href="#",
@@ -231,12 +240,11 @@ navbar = dbc.NavbarSimple(
     className="mb-4"
 )
 
-# Example banner (replacing the old Jumbotron)
 banner = dbc.Container(
     [
         html.H1("Guardian News Topic Explorer 📰", className="display-3 fw-bold"),
         html.P(
-            "Interactive topic modeling and t-SNE clustering of Guardian articles, powered by LDA.",
+            "Interactive topic modeling and clustering of Guardian articles. Fewer LDA passes for faster load on Heroku.",
             className="lead text-muted"
         ),
     ],
@@ -257,7 +265,7 @@ controls_card = dbc.Card(
                 ],
                 value='last_month',
                 inline=True,
-                className="mb-3",
+                className="mb-3"
             ),
             dcc.DatePickerRange(
                 id='date-range',
@@ -277,7 +285,7 @@ controls_card = dbc.Card(
     className="mb-4 shadow"
 )
 
-topic_distribution_graph = dbc.Card(
+topic_distribution_card = dbc.Card(
     [
         dbc.CardHeader("Topic Word Distributions", className="bg-secondary text-light"),
         dbc.CardBody([
@@ -287,7 +295,7 @@ topic_distribution_graph = dbc.Card(
     className="mb-4 shadow"
 )
 
-word_cloud_graph = dbc.Card(
+word_cloud_card = dbc.Card(
     [
         dbc.CardHeader("Word Cloud", className="bg-secondary text-light"),
         dbc.CardBody([
@@ -297,7 +305,7 @@ word_cloud_graph = dbc.Card(
     className="mb-4 shadow"
 )
 
-tsne_plot_graph = dbc.Card(
+tsne_card = dbc.Card(
     [
         dbc.CardHeader("t-SNE Topic Clustering", className="bg-secondary text-light"),
         dbc.CardBody([
@@ -307,7 +315,7 @@ tsne_plot_graph = dbc.Card(
     className="mb-4 shadow"
 )
 
-articles_table = dbc.Card(
+articles_table_card = dbc.Card(
     [
         dbc.CardHeader("Article Details", className="bg-secondary text-light"),
         dbc.CardBody([
@@ -317,16 +325,18 @@ articles_table = dbc.Card(
                     {'name': 'Title', 'id': 'title'},
                     {'name': 'Section', 'id': 'section'},
                     {'name': 'Published', 'id': 'published'},
-                    {'name': 'Topics', 'id': 'topics'}
+                    {'name': 'Topics', 'id': 'topics'},
                 ],
                 style_table={'overflowX': 'auto'},
                 style_cell={
-                    'backgroundColor': 'rgb(50, 50, 50)',
+                    'backgroundColor': 'rgb(50,50,50)',
                     'color': 'white',
-                    'textAlign': 'left'
+                    'textAlign': 'left',
+                    'whiteSpace': 'normal',
+                    'height': 'auto'
                 },
                 style_header={
-                    'backgroundColor': 'rgb(30, 30, 30)',
+                    'backgroundColor': 'rgb(30,30,30)',
                     'fontWeight': 'bold'
                 },
                 page_size=10
@@ -336,33 +346,32 @@ articles_table = dbc.Card(
     className="mb-4 shadow"
 )
 
-app.layout = dbc.Container(
-    [
-        navbar,
-        banner,
-        dbc.Row([
-            dbc.Col(controls_card, md=4),
-            dbc.Col([
-                topic_distribution_graph,
-                word_cloud_graph
-            ], md=8)
-        ], align="start"),
-        dbc.Row([dbc.Col(tsne_plot_graph, md=12)]),
-        dbc.Row([dbc.Col(articles_table, md=12)])
-    ],
-    fluid=True
-)
+app.layout = dbc.Container([
+    navbar,
+    banner,
+    dbc.Row([
+        dbc.Col(controls_card, md=4),
+        dbc.Col([
+            topic_distribution_card,
+            word_cloud_card
+        ], md=8)
+    ], align="start"),
+    dbc.Row([dbc.Col(tsne_card, md=12)]),
+    dbc.Row([dbc.Col(articles_table_card, md=12)])
+], fluid=True)
 
-###########################################
-# CALLBACKS
-###########################################
-
+# ─────────────────────────────────────────────────────────────────────
+# Callbacks
+# ─────────────────────────────────────────────────────────────────────
 @app.callback(
     [Output('date-range', 'start_date'),
      Output('date-range', 'end_date')],
-    [Input('date-select-buttons', 'value')]
+    Input('date-select-buttons', 'value')
 )
 def update_date_range(selected_range):
+    """
+    Sync date picker with radio items for convenience.
+    """
     end_date = datetime.now().date()
     if selected_range == 'last_day':
         start_date = end_date - timedelta(days=1)
@@ -387,80 +396,77 @@ def update_date_range(selected_range):
         Input('topic-filter', 'value')
     ]
 )
-def update_visualizations(start_date, end_date, selected_topics):
+def update_visuals(start_date, end_date, selected_topics):
     """
-    1) Fetch and process data.
-    2) Topic bar chart.
-    3) Word cloud for first selected topic.
-    4) t-SNE scatter (using create_tsne_visualization).
-    5) Article table with topic membership.
+    1) Pull data from process_articles
+    2) Build topic distribution, word cloud for the 1st selected topic
+    3) t-SNE scatter
+    4) Article table with selected topics
     """
     try:
-        logger.info(f"Starting update with dates: {start_date} to {end_date}")
-        results = process_articles(start_date, end_date)
-        if not results or results[0] is None:
-            logger.error("Failed to process articles")
+        logger.info(f"Updating from {start_date} to {end_date}, topics={selected_topics}")
+        df, texts, dictionary, corpus, lda_model = process_articles(start_date, end_date)
+        if df is None or df.empty:
+            # return placeholders
+            logger.error("No data returned from process_articles.")
             empty_fig = go.Figure().update_layout(template='plotly')
             return empty_fig, empty_fig, empty_fig, []
         
-        df, texts, dictionary, corpus, lda_model = results
-        
-        # If no topics selected, show all
         if not selected_topics:
             selected_topics = list(range(lda_model.num_topics))
         
-        # Build topic distribution figure
-        # gather top words from each selected topic
-        topic_terms = []
-        for topic_id in selected_topics:
-            top_words = lda_model.show_topic(topic_id, topn=10)
-            for word, prob in top_words:
-                topic_terms.append((word, prob, topic_id))
+        # Create bar chart of top words for each selected topic
+        terms = []
+        for t_id in selected_topics:
+            topn = lda_model.show_topic(t_id, topn=10)
+            for word, prob in topn:
+                terms.append((word, prob, t_id))
         
-        topic_df = pd.DataFrame(topic_terms, columns=['word', 'probability', 'topic'])
-        dist_fig = px.bar(
-            topic_df,
-            x='probability',
-            y='word',
-            color='topic',
-            orientation='h',
-            title='Topic Word Distributions'
-        )
-        dist_fig.update_layout(template='plotly')
+        if not terms:
+            # fallback if user picks invalid topics
+            dist_fig = go.Figure().update_layout(template='plotly', title='No topics selected')
+        else:
+            tmp_df = pd.DataFrame(terms, columns=['word', 'probability', 'topic'])
+            dist_fig = px.bar(
+                tmp_df,
+                x='probability',
+                y='word',
+                color='topic',
+                orientation='h',
+                title='Topic Word Distributions'
+            )
+            dist_fig.update_layout(template='plotly')
         
-        # Word Cloud for the first selected topic
-        sel_topic = selected_topics[0] if selected_topics else 0
-        wcloud_fig = create_word_cloud(lda_model.show_topic(sel_topic, topn=30))
+        # Word cloud from the first selected topic
+        first_t = selected_topics[0]
+        wcloud_fig = create_word_cloud(lda_model.show_topic(first_t, topn=30))
         
-        # t-SNE
+        # t-SNE scatter
         tsne_fig = create_tsne_visualization(df, corpus, lda_model)
         
-        # Prepare article data
-        # For each doc in df, gather topic distribution
-        table_data = []
+        # Build the table data
+        # Attach topic distribution for each doc, filtering to selected topics
+        table_rows = []
         for i in df.index:
             doc_topics = lda_model.get_document_topics(corpus[i])
-            # keep only selected topics in textual representation
-            topic_info = []
-            for t_id, prob in sorted(doc_topics, key=lambda x: x[1], reverse=True):
+            row_topics = []
+            for t_id, weight in sorted(doc_topics, key=lambda x: x[1], reverse=True):
                 if t_id in selected_topics:
-                    topic_info.append(f"Topic {t_id+1}: {prob:.3f}")
-            
-            row_data = {
+                    row_topics.append(f"Topic {t_id+1}: {weight:.3f}")
+            table_rows.append({
                 'title': df.at[i, 'title'],
                 'section': df.at[i, 'section'],
                 'published': df.at[i, 'published'].strftime('%Y-%m-%d %H:%M'),
-                'topics': '\n'.join(topic_info)
-            }
-            table_data.append(row_data)
+                'topics': '\n'.join(row_topics)
+            })
         
-        logger.info("Successfully updated all visuals")
-        return dist_fig, wcloud_fig, tsne_fig, table_data
+        return dist_fig, wcloud_fig, tsne_fig, table_rows
+    
     except Exception as e:
-        logger.error(f"Main callback error: {str(e)}", exc_info=True)
+        logger.error(f"Main callback error: {e}", exc_info=True)
         empty_fig = go.Figure().update_layout(template='plotly')
         return empty_fig, empty_fig, empty_fig, []
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     port = int(os.getenv('PORT', 8050))
     app.run_server(debug=True, port=port)
