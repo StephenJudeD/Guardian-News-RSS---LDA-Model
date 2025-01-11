@@ -52,8 +52,12 @@ nltk.download('punkt')
 nltk.download('stopwords')
 stop_words = set(stopwords.words('english')).union(CUSTOM_STOP_WORDS)
 
-# Initialize
+# Initialize GuardianFetcher
 guardian = GuardianFetcher(GUARDIAN_API_KEY)
+
+# Initialize Dash and server
+# You can try different themes to change the look:
+# e.g. dbc.themes.COSMO, dbc.themes.SKETCHY, dbc.themes.JOURNAL, etc.
 app = Dash(__name__, external_stylesheets=[dbc.themes.JOURNAL])
 server = app.server
 app.config.suppress_callback_exceptions = True
@@ -83,14 +87,16 @@ def process_articles(start_date, end_date):
         
         logger.info(f"Filtered to {len(df)} articles within date range")
         
-        # Fix the text processing - This was the bug!
+        # Fix the text processing
         texts = []
         for content in df['content']:
             if pd.isna(content):
                 continue
             words = word_tokenize(str(content))
-            filtered_words = [word.lower() for word in words 
-                            if word.isalnum() and word.lower() not in stop_words]
+            filtered_words = [
+                word.lower() for word in words 
+                if word.isalnum() and word.lower() not in stop_words
+            ]
             texts.append(filtered_words)
         
         if len(texts) < 5:
@@ -132,6 +138,8 @@ def create_word_cloud(topic_words):
             template='plotly',
             title="Topic Word Cloud"
         )
+        fig.update_xaxes(showticklabels=False)
+        fig.update_yaxes(showticklabels=False)
         return fig
     except Exception as e:
         logger.error(f"Error creating word cloud: {str(e)}", exc_info=True)
@@ -150,7 +158,7 @@ def create_tsne_visualization(corpus, lda_model, df):
         doc_topics_array = np.array(doc_topics)
         
         tsne = TSNE(n_components=2, random_state=42)
-        topic_coords = tsne.fit_transform(doc_topics_array)  # Now using numpy array
+        topic_coords = tsne.fit_transform(doc_topics_array)
         
         df_viz = pd.DataFrame({
             'x': topic_coords[:, 0],
@@ -178,92 +186,171 @@ def create_tsne_visualization(corpus, lda_model, df):
         logger.error(f"Error creating t-SNE visualization: {str(e)}", exc_info=True)
         return go.Figure().update_layout(template='plotly')
 
-# Layout
-app.layout = dbc.Container([
-    dbc.Row([
-        dbc.Col([
-            html.H1("Guardian News Topic Explorer 📰", className="text-center mb-4"),
-            html.P("Interactive analysis of Guardian articles using LDA topic modeling", 
-                  className="text-center text-muted")
-        ])
-    ]),
-    
-    dbc.Row([
-            dbc.Col([
-                dbc.Card([
-                    dbc.CardBody([
-                        html.H4("Controls", className="card-title"),
-                        # New date selection buttons
-                        dbc.RadioItems(
-                            id='date-select-buttons',
-                            options=[
-                                {'label': 'Last Day', 'value': 'last_day'},
-                                {'label': 'Last Week', 'value': 'last_week'},
-                                {'label': 'Last Month', 'value': 'last_month'},
-                            ],
-                            value='last_month',
-                            inline=True,
-                            className="mb-3"
-                        ),
-                        dcc.DatePickerRange(
-                            id='date-range',
-                            start_date=(datetime.now() - timedelta(days=30)).date(),
-                            end_date=datetime.now().date(),
-                            className="mb-3"
-                        ),
-                        dcc.Dropdown(
-                            id='topic-filter',
-                            options=[{'label': f'Topic {i+1}', 'value': i} for i in range(5)],
-                            multi=True,
-                            placeholder="Filter by topics...",
-                            className="mb-3"
-                        )
-                    ])
-                ], className="mb-4")
-            ])
-        ]),
-    
-    dbc.Row([
-        dbc.Col([
-            dcc.Graph(id='topic-distribution')
-        ], width=6),
-        dbc.Col([
-            dcc.Graph(id='word-cloud')
-        ], width=6)
-    ]),
-    
-    dbc.Row([
-        dbc.Col([
-            dcc.Graph(id='tsne-plot')
-        ])
-    ]),
-    
-    dbc.Row([
-        dbc.Col([
-            dash_table.DataTable(
-                id='article-details',
-                columns=[
-                    {'name': 'Title', 'id': 'title'},
-                    {'name': 'Section', 'id': 'section'},
-                    {'name': 'Published', 'id': 'published'},
-                    {'name': 'Topics', 'id': 'topics'}
-                ],
-                style_table={'overflowX': 'auto'},
-                style_cell={
-                    'backgroundColor': 'rgb(50, 50, 50)',
-                    'color': 'white',
-                    'textAlign': 'left'
-                },
-                style_header={
-                    'backgroundColor': 'rgb(30, 30, 30)',
-                    'fontWeight': 'bold'
-                },
-                page_size=10
-            )
-        ])
-    ])
-])
+######################################
+# APPLICATION LAYOUT IMPROVEMENTS
+######################################
 
+# Create a simple Navbar
+navbar = dbc.NavbarSimple(
+    brand="Guardian News Topic Explorer",
+    brand_href="#",
+    color="primary",
+    dark=True,
+    className="mb-4"
+)
+
+# Create an introductory Jumbotron (or Hero unit)
+jumbotron = dbc.Jumbotron(
+    [
+        html.H1("Guardian News Topic Explorer 📰", className="display-4"),
+        html.P(
+            "Interactive topic modeling and t-SNE clustering of Guardian articles, powered by LDA.",
+            className="lead text-muted"
+        ),
+    ],
+    className="p-4 mb-4 bg-light rounded-3"
+)
+
+# Main Controls
+controls_card = dbc.Card(
+    [
+        dbc.CardHeader(html.H4("Controls")),
+        dbc.CardBody(
+            [
+                dbc.RadioItems(
+                    id='date-select-buttons',
+                    options=[
+                        {'label': 'Last Day', 'value': 'last_day'},
+                        {'label': 'Last Week', 'value': 'last_week'},
+                        {'label': 'Last Month', 'value': 'last_month'},
+                    ],
+                    value='last_month',
+                    inline=True,
+                    className="mb-3",
+                ),
+                dcc.DatePickerRange(
+                    id='date-range',
+                    start_date=(datetime.now() - timedelta(days=30)).date(),
+                    end_date=datetime.now().date(),
+                    className="mb-3"
+                ),
+                dcc.Dropdown(
+                    id='topic-filter',
+                    options=[{'label': f'Topic {i+1}', 'value': i} for i in range(5)],
+                    multi=True,
+                    placeholder="Filter by topics...",
+                    className="mb-3"
+                )
+            ]
+        )
+    ],
+    className="mb-4 shadow"
+)
+
+# Graphs and Tables
+topic_distribution_graph = dbc.Card(
+    [
+        dbc.CardHeader("Topic Word Distributions", className="bg-secondary text-light"),
+        dbc.CardBody(
+            [
+                dcc.Graph(id='topic-distribution', style={"height": "400px"})
+            ]
+        ),
+    ],
+    className="mb-4 shadow"
+)
+
+word_cloud_graph = dbc.Card(
+    [
+        dbc.CardHeader("Word Cloud", className="bg-secondary text-light"),
+        dbc.CardBody(
+            [
+                dcc.Graph(id='word-cloud', style={"height": "400px"})
+            ]
+        )
+    ],
+    className="mb-4 shadow"
+)
+
+tsne_plot_graph = dbc.Card(
+    [
+        dbc.CardHeader("t-SNE Topic Clustering", className="bg-secondary text-light"),
+        dbc.CardBody(
+            [
+                dcc.Graph(id='tsne-plot', style={"height": "600px"})
+            ]
+        )
+    ],
+    className="mb-4 shadow"
+)
+
+# Articles Table
+articles_table = dbc.Card(
+    [
+        dbc.CardHeader("Article Details", className="bg-secondary text-light"),
+        dbc.CardBody(
+            [
+                dash_table.DataTable(
+                    id='article-details',
+                    columns=[
+                        {'name': 'Title', 'id': 'title'},
+                        {'name': 'Section', 'id': 'section'},
+                        {'name': 'Published', 'id': 'published'},
+                        {'name': 'Topics', 'id': 'topics'}
+                    ],
+                    style_table={'overflowX': 'auto'},
+                    style_cell={
+                        'backgroundColor': 'rgb(50, 50, 50)',
+                        'color': 'white',
+                        'textAlign': 'left'
+                    },
+                    style_header={
+                        'backgroundColor': 'rgb(30, 30, 30)',
+                        'fontWeight': 'bold'
+                    },
+                    page_size=10
+                )
+            ]
+        )
+    ],
+    className="mb-4 shadow"
+)
+
+# Assemble layout
+app.layout = dbc.Container(
+    [
+        navbar,
+        jumbotron,
+        dbc.Row(
+            [
+                dbc.Col(controls_card, md=4),
+                dbc.Col(
+                    [
+                        topic_distribution_graph,
+                        word_cloud_graph
+                    ],
+                    md=8
+                ),
+            ],
+            align="start"
+        ),
+        dbc.Row(
+            [
+                dbc.Col(tsne_plot_graph, md=12)
+            ]
+        ),
+        dbc.Row(
+            [
+                dbc.Col(articles_table, md=12)
+            ]
+        )
+    ],
+    fluid=True
+)
+
+######################################
+# CALLBACKS
+######################################
 
 @app.callback(
     [Output('date-range', 'start_date'),
@@ -272,7 +359,6 @@ app.layout = dbc.Container([
 )
 def update_date_range(selected_range):
     end_date = datetime.now().date()
-    
     if selected_range == 'last_day':
         start_date = end_date - timedelta(days=1)
     elif selected_range == 'last_week':
@@ -280,19 +366,19 @@ def update_date_range(selected_range):
     elif selected_range == 'last_month':
         start_date = end_date - timedelta(days=30)
     else:
-        start_date = end_date - timedelta(days=30)  # default to last month
-        
+        start_date = end_date - timedelta(days=30)  # default
     return start_date, end_date
-
 
 @app.callback(
     [Output('topic-distribution', 'figure'),
      Output('word-cloud', 'figure'),
      Output('tsne-plot', 'figure'),
      Output('article-details', 'data')],
-    [Input('date-range', 'start_date'),
-     Input('date-range', 'end_date'),
-     Input('topic-filter', 'value')]
+    [
+        Input('date-range', 'start_date'),
+        Input('date-range', 'end_date'),
+        Input('topic-filter', 'value')
+    ]
 )
 def update_visualizations(start_date, end_date, selected_topics):
     try:
@@ -305,15 +391,17 @@ def update_visualizations(start_date, end_date, selected_topics):
             
         df, texts, dictionary, corpus, lda_model = results
         
-        # If no topics selected, show all topics
+        # If no topics selected, show all
         if not selected_topics:
             selected_topics = list(range(lda_model.num_topics))
         
-        # Topic Distribution - Now filtered by selected topics
+        # Topic Distribution
         topic_terms = []
-        for topic_id in selected_topics:  # Only include selected topics
-            topic_terms.extend([(word, prob, topic_id) 
-                              for word, prob in lda_model.show_topic(topic_id, topn=10)])
+        for topic_id in selected_topics:
+            topic_terms.extend([
+                (word, prob, topic_id) 
+                for word, prob in lda_model.show_topic(topic_id, topn=10)
+            ])
         
         topic_df = pd.DataFrame(topic_terms, columns=['word', 'probability', 'topic'])
         
@@ -327,23 +415,20 @@ def update_visualizations(start_date, end_date, selected_topics):
         )
         dist_fig.update_layout(template='plotly')
         
-        # Word Cloud - Already working with selected topics
+        # Word Cloud for the first selected topic
         selected_topic = selected_topics[0] if selected_topics else 0
         word_cloud_fig = create_word_cloud(lda_model.show_topic(selected_topic, topn=30))
         
-        # t-SNE - Filter by selected topics
+        # t-SNE
         doc_topics = []
-        doc_topic_mapping = []  # To track which topics each document belongs to
-        
+        doc_topic_mapping = []
         for doc in corpus:
             topic_weights = [0] * lda_model.num_topics
-            for topic, weight in lda_model[doc]:
-                topic_weights[topic] = weight
+            for t, weight in lda_model[doc]:
+                topic_weights[t] = weight
             doc_topics.append(topic_weights)
-            
-            # Get the dominant topic for this document
-            dominant_topic = max(range(len(topic_weights)), key=lambda i: topic_weights[i])
-            doc_topic_mapping.append(dominant_topic)
+            dom_topic = max(range(len(topic_weights)), key=lambda i: topic_weights[i])
+            doc_topic_mapping.append(dom_topic)
         
         # Filter documents by selected topics
         mask = [idx for idx, topic in enumerate(doc_topic_mapping) if topic in selected_topics]
@@ -351,19 +436,19 @@ def update_visualizations(start_date, end_date, selected_topics):
         filtered_df = df.iloc[mask]
         
         tsne_fig = create_tsne_visualization(
-            [corpus[i] for i in mask],  # filtered corpus
+            [corpus[i] for i in mask],
             lda_model,
             filtered_df
         )
         
-        # Article Details - Filter by selected topics
+        # Prepare article details
         doc_topics_info = []
         for doc, main_topic in zip([corpus[i] for i in mask], [doc_topic_mapping[i] for i in mask]):
             topic_dist = lda_model.get_document_topics(doc)
             topic_info = [
-                f"Topic {topic+1}: {prob:.3f}"
-                for topic, prob in sorted(topic_dist, key=lambda x: x[1], reverse=True)
-                if topic in selected_topics  # Only include selected topics
+                f"Topic {t+1}: {prob:.3f}"
+                for t, prob in sorted(topic_dist, key=lambda x: x[1], reverse=True)
+                if t in selected_topics
             ]
             doc_topics_info.append(topic_info)
         
@@ -381,6 +466,7 @@ def update_visualizations(start_date, end_date, selected_topics):
         logger.error(f"Main callback error: {str(e)}", exc_info=True)
         empty_fig = go.Figure().update_layout(template='plotly')
         return empty_fig, empty_fig, empty_fig, []
+
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 8050))
