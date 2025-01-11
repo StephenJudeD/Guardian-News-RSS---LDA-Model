@@ -56,8 +56,7 @@ stop_words = set(stopwords.words('english')).union(CUSTOM_STOP_WORDS)
 guardian = GuardianFetcher(GUARDIAN_API_KEY)
 
 # Initialize Dash and server
-# You can try different themes to change the look:
-# e.g. dbc.themes.COSMO, dbc.themes.SKETCHY, dbc.themes.JOURNAL, etc.
+# You can try different themes to change the look: e.g. dbc.themes.COSMO, dbc.themes.SKETCHY, dbc.themes.JOURNAL, etc.
 app = Dash(__name__, external_stylesheets=[dbc.themes.JOURNAL])
 server = app.server
 app.config.suppress_callback_exceptions = True
@@ -199,17 +198,32 @@ navbar = dbc.NavbarSimple(
     className="mb-4"
 )
 
-# Create an introductory Jumbotron (or Hero unit)
-jumbotron = dbc.Jumbotron(
+# ────────── REPLACE THIS SNIPPET ──────────
+# OLD (deprecated):
+# jumbotron = dbc.Jumbotron(
+#     [
+#         html.H1("Guardian News Topic Explorer 📰", className="display-4"),
+#         html.P(
+#             "Interactive topic modeling and t-SNE clustering of Guardian articles, powered by LDA.",
+#             className="lead text-muted"
+#         ),
+#     ],
+#     className="p-4 mb-4 bg-light rounded-3"
+# )
+
+# NEW (banner using dbc.Container):
+banner = dbc.Container(
     [
-        html.H1("Guardian News Topic Explorer 📰", className="display-4"),
+        html.H1("Guardian News Topic Explorer 📰", className="display-3 fw-bold"),
         html.P(
             "Interactive topic modeling and t-SNE clustering of Guardian articles, powered by LDA.",
             className="lead text-muted"
         ),
     ],
-    className="p-4 mb-4 bg-light rounded-3"
+    fluid=True,
+    className="py-5 my-4 bg-light rounded-3 text-center"
 )
+# ──────────────────────────────────────────
 
 # Main Controls
 controls_card = dbc.Card(
@@ -320,7 +334,8 @@ articles_table = dbc.Card(
 app.layout = dbc.Container(
     [
         navbar,
-        jumbotron,
+        # use our 'banner' in place of a jumbotron
+        banner,
         dbc.Row(
             [
                 dbc.Col(controls_card, md=4),
@@ -466,7 +481,6 @@ def update_visualizations(start_date, end_date, selected_topics):
         logger.error(f"Main callback error: {str(e)}", exc_info=True)
         empty_fig = go.Figure().update_layout(template='plotly')
         return empty_fig, empty_fig, empty_fig, []
-
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 8050))
