@@ -1,4 +1,4 @@
-##!/usr/bin/env python
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
 import dash
@@ -10,7 +10,11 @@ from guardian_fetcher import GuardianFetcher
 from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
+
+# NEW OR UPDATED
 from gensim import corpora, models
+from gensim.models.phrases import Phrases, Phraser
+
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
 from sklearn.manifold import TSNE
@@ -35,16 +39,17 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────────────────────────────
-# Stop words
+# Stop words (Expanded)
 # ─────────────────────────────────────────────────────────────────────
+
+# NEW OR UPDATED: You can keep adding more if you want.
 CUSTOM_STOP_WORDS = {
-    'says', 'said', 'would', 'also', 'one', 'new',
-    'us', 'people', 'government', 'could', 'will',
-    'may', 'like', 'get', 'make', 'first', 'two',
-    'year', 'years', 'time', 'way', 'says', 
-    'according', 'told', 'reuters', 'guardian',
-    'monday', 'tuesday', 'wednesday', 'thursday', 'friday',
-    'saturday', 'sunday', 'week', 'month'
+    'says', 'said', 'would', 'also', 'one', 'new', 'like', 'get', 'make', 
+    'first', 'two', 'year', 'years', 'time', 'way', 'says', 'say', 'saying',
+    'according', 'told', 'reuters', 'guardian', 'monday', 'tuesday', 'wednesday',
+    'thursday', 'friday', 'saturday', 'sunday', 'week', 'month', 'us', 'people',
+    'government', 'could', 'will', 'may', 'trump', 'published', 'article',
+    'editor', 'nt', 'dont', 'doesnt', 'cant', 'couldnt', 'shouldnt'
 }
 
 # ─────────────────────────────────────────────────────────────────────
@@ -79,6 +84,8 @@ app.config.suppress_callback_exceptions = True
 def process_articles(start_date, end_date):
     """
     Fetch articles from Guardian, filter by date, tokenize, train LDA.
+    Incorporates bigrams and trigrams.
+
     Returns (df, texts, dictionary, corpus, lda_model).
     """
     try:
@@ -105,19 +112,37 @@ def process_articles(start_date, end_date):
         df.reset_index(drop=True, inplace=True)
         
         # Tokenize
-        texts = []
-        for i in range(len(df)):
+        tokenized_texts = []
+        for i in df.index:
             content = df.at[i, 'content']
             if pd.isna(content):
-                texts.append([])
+                tokenized_texts.append([])
                 continue
             words = word_tokenize(str(content))
+            # Basic cleaning: keep only alnum & not in stop words
             filtered = [
                 w.lower() for w in words
                 if w.isalnum() and w.lower() not in stop_words
             ]
-            texts.append(filtered)
-        
+            tokenized_texts.append(filtered)
+
+        # ─────────────────────────────────────────────────────────────
+        # NEW OR UPDATED: Bigrams & Trigrams
+        # ─────────────────────────────────────────────────────────────
+        # Let's create bigram + trigram models via Gensim Phrases
+        bigram_phrases = Phrases(tokenized_texts, min_count=5, threshold=10)
+        trigram_phrases = Phrases(bigram_phrases[tokenized_texts], threshold=10)
+        bigram = Phraser(bigram_phrases)
+        trigram = Phraser(trigram_phrases)
+
+        # Apply them to the tokenized texts
+        texts = []
+        for t in tokenized_texts:
+            bigrammed = bigram[t]
+            trigrammed = trigram[bigrammed]
+            texts.append(trigrammed)
+
+        # Gensim dictionary + corpus
         dictionary = corpora.Dictionary(texts)
         corpus = [dictionary.doc2bow(t) for t in texts]
         
@@ -133,6 +158,7 @@ def process_articles(start_date, end_date):
         
         logger.info(f"Processed {len(df)} articles successfully")
         return df, texts, dictionary, corpus, lda_model
+
     except Exception as e:
         logger.error(f"Error in process_articles: {e}", exc_info=True)
         return None, None, None, None, None
@@ -222,13 +248,7 @@ def create_tsne_visualization_3d(df, corpus, lda_model):
 
 def create_bubble_chart(df):
     """
-    Create a bubble chart showing doc length vs. published date, colored by top topic.
-    We'll measure doc length simply as token count for each row.
-    For color, we'll guess the doc's 'dominant_topic' from the df if available.
-    
-    If we haven't stored that, we can do a quick re-check (like get_document_topics).
-    But for simplicity, let's do a naive approach:  we'll pick the first topic from the aggregated LDA model or store it earlier.
-    We'll do that in the main callback.
+    Bubble chart of doc length vs published date, sized by doc length, colored by dominant_topic.
     """
     try:
         if df is None or df.empty or 'doc_length' not in df.columns or 'dominant_topic' not in df.columns:
@@ -241,8 +261,8 @@ def create_bubble_chart(df):
             df,
             x='published',
             y='doc_length',
-            size='doc_length',  # doc length as bubble size
-            color='dominant_topic',  # color by dominant topic
+            size='doc_length',
+            color='dominant_topic',
             hover_data=['title'],
             title='Document Length Bubble Chart'
         )
@@ -334,20 +354,16 @@ controls_row = dbc.Row(
     className="my-2 px-2"
 )
 
-# ─────────────────────────────────────────────────────────────────────
-# Cards for the stacked layout
-# 1) Topic Word Dist (top)
-# 2) 3D t-SNE (middle)
-# 3) Word Cloud (below)
-# 4) Bubble Chart (below word cloud)
-# 5) Articles Table
-# ─────────────────────────────────────────────────────────────────────
-
 topic_dist_card = dbc.Card(
     [
         dbc.CardHeader("Topic Word Distributions", style={"backgroundColor": "white", "fontWeight": "bold"}),
         dbc.CardBody(
-            dcc.Graph(id='topic-distribution', style={"height": "600px"}),
+            # NEW OR UPDATED: Wrap the graph in a Loading spinner
+            dcc.Loading(
+                id="loading-topic-dist",
+                type="circle",
+                children=[dcc.Graph(id='topic-distribution', style={"height": "600px"})]
+            ),
             style={"backgroundColor": "white"}
         )
     ],
@@ -359,7 +375,11 @@ tsne_3d_card = dbc.Card(
     [
         dbc.CardHeader("3D t-SNE Topic Clustering", style={"backgroundColor": "white", "fontWeight": "bold"}),
         dbc.CardBody(
-            dcc.Graph(id='tsne-plot', style={"height": "600px"}),
+            dcc.Loading(
+                id="loading-3d-tsne",
+                type="circle",
+                children=[dcc.Graph(id='tsne-plot', style={"height": "600px"})]
+            ),
             style={"backgroundColor": "white"}
         )
     ],
@@ -371,7 +391,11 @@ wordcloud_card = dbc.Card(
     [
         dbc.CardHeader("Word Cloud", style={"backgroundColor": "white", "fontWeight": "bold"}),
         dbc.CardBody(
-            dcc.Graph(id='word-cloud', style={"height": "600px"}),
+            dcc.Loading(
+                id="loading-wordcloud",
+                type="circle",
+                children=[dcc.Graph(id='word-cloud', style={"height": "600px"})]
+            ),
             style={"backgroundColor": "white"}
         )
     ],
@@ -383,7 +407,11 @@ bubble_chart_card = dbc.Card(
     [
         dbc.CardHeader("Document Length Bubble Chart", style={"backgroundColor": "white", "fontWeight": "bold"}),
         dbc.CardBody(
-            dcc.Graph(id='bubble-chart', style={"height": "600px"}),
+            dcc.Loading(
+                id="loading-bubble-chart",
+                type="circle",
+                children=[dcc.Graph(id='bubble-chart', style={"height": "600px"})]
+            ),
             style={"backgroundColor": "white"}
         )
     ],
@@ -521,16 +549,12 @@ def update_visuals(start_date, end_date, selected_topics):
         tsne_fig = create_tsne_visualization_3d(df, corpus, lda_model)
         
         # 4) Bubble Chart
-        # We'll compute doc length for each doc, plus a "dominant_topic"
-        # that is the highest weighted topic for that doc. 
         doc_lengths = []
         doc_dominant_topics = []
         for i in df.index:
             doc_topics = lda_model.get_document_topics(corpus[i])
-            # doc length is just the sum of token counts
             n_tokens = len(texts[i]) if texts[i] else 0
             doc_lengths.append(n_tokens)
-            # pick dominant topic
             if doc_topics:
                 best_t = max(doc_topics, key=lambda x: x[1])[0]
             else:
@@ -539,8 +563,6 @@ def update_visuals(start_date, end_date, selected_topics):
         
         df["doc_length"] = doc_lengths
         df["dominant_topic"] = doc_dominant_topics
-        
-        # We'll do a bubble chart with x=published, y=doc_length, size=doc_length, color=dominant_topic
         bubble_fig = create_bubble_chart(df)
         
         # 5) Table data
