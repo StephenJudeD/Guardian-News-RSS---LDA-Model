@@ -32,15 +32,14 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────────────────────────────
-# Stop words (Expanded)
+# Expanded Stop Words
 # ─────────────────────────────────────────────────────────────────────
 CUSTOM_STOP_WORDS = {
-    'says', 'said', 'would', 'also', 'one', 'new', 'like', 'get', 'make',
-    'first', 'two', 'year', 'years', 'time', 'way', 'says', 'say', 'saying',
-    'according', 'told', 'reuters', 'guardian', 'monday', 'tuesday', 'wednesday',
-    'thursday', 'friday', 'saturday', 'sunday', 'week', 'month', 'us', 'people',
-    'government', 'could', 'will', 'may', 'trump', 'published', 'article',
-    'editor', 'nt', 'dont', 'doesnt', 'cant', 'couldnt', 'shouldnt', 'one', 'two', 'three', 'four', 'five'
+    'says', 'said', 'would', 'also', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
+    'new', 'like', 'get', 'make', 'first', 'year', 'years', 'time', 'way', 'says', 'say', 'saying', 'according',
+    'told', 'reuters', 'guardian', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
+    'week', 'month', 'us', 'people', 'government', 'could', 'will', 'may', 'trump', 'published', 'article', 'editor',
+    'nt', 'dont', 'doesnt', 'cant', 'couldnt', 'shouldnt'
 }
 
 # ─────────────────────────────────────────────────────────────────────
@@ -175,6 +174,7 @@ def create_word_cloud(topic_words):
 def create_tsne_visualization_3d(df, corpus, lda_model):
     """
     3D t-SNE scatter (Plotly).
+    Uses all documents in df/corpus to avoid filtering by topic.
     """
     try:
         if df is None or len(df) < 2:
@@ -572,6 +572,7 @@ def update_visuals(start_date, end_date, selected_topics):
      1) Train LDA on entire set within the selected date range.
      2) If no topic selected, show all topics [0..4].
      3) Build visuals & article table.
+     4) We now create the t-SNE from the entire set (unfiltered).
     """
     try:
         logger.info(f"update_visuals: {start_date} to {end_date}, topics={selected_topics}")
@@ -638,26 +639,16 @@ def update_visuals(start_date, end_date, selected_topics):
         first_topic = selected_topics[0]
         wc_fig = create_word_cloud(lda_model.show_topic(first_topic, topn=30))
 
-        # 3) 3D t-SNE (use filtered_df)
-        # need to build doc_topics_array for only the filtered docs
-        doc_topics_list = []
-        for i in filtered_df.index:
-            doc_topics = lda_model.get_document_topics(corpus[i])
-            weights = [0.0]*lda_model.num_topics
-            for tid, w in doc_topics:
-                weights[tid] = w
-            doc_topics_list.append(weights)
-        doc_topics_array = np.array(doc_topics_list, dtype=np.float32)
-        tsne_fig = create_tsne_visualization_3d(filtered_df, filtered_corpus, lda_model) \
-            if len(filtered_df) > 1 else go.Figure().update_layout(template='plotly', title="Not enough docs for t-SNE")
+        # 3) 3D t-SNE (use the entire df/corpus, not the filtered_df/corpus)
+        tsne_fig = create_tsne_visualization_3d(df, corpus, lda_model)
 
         # 4) Bubble Chart (use filtered_df)
         bubble_fig = create_bubble_chart(filtered_df)
 
-        # 5) Bigrams & Trigrams
+        # 5) Bigrams & Trigrams (use filtered texts)
         ngram_fig = create_ngram_bar_chart(filtered_texts)
 
-        # 6) Article Table data
+        # 6) Article Table data (only for the filtered set)
         table_data = []
         for i in filtered_df.index:
             doc_topics = lda_model.get_document_topics(corpus[i])
