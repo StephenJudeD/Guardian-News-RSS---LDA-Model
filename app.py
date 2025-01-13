@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
 import dash
 from dash import Dash, html, dcc, Input, Output, dash_table
 import dash_bootstrap_components as dbc
@@ -307,7 +310,6 @@ navbar = dbc.Navbar(
                     dbc.NavbarBrand(
                         "Guardian News Topic Explorer",
                         className="ms-2",
-                        # DOUBLE THE SIZE HERE:
                         style={"color": "white", "fontWeight": "bold", "fontSize": "2rem"}
                     )
                 )
@@ -359,15 +361,15 @@ controls_row = dbc.Row(
                             options=[
                                 {'label': 'Last Day', 'value': 'last_day'},
                                 {'label': 'Last Week', 'value': 'last_week'},
-                                {'label': 'Last Month', 'value': 'last_month'},
+                                {'label': 'Last Two Weeks', 'value': 'last_two_weeks'},
                             ],
-                            value='last_month',
+                            value='last_two_weeks',
                             inline=True,
                             className="mb-3"
                         ),
                         dcc.DatePickerRange(
                             id='date-range',
-                            start_date=(datetime.now() - timedelta(days=30)).date(),
+                            start_date=(datetime.now() - timedelta(days=14)).date(),
                             end_date=datetime.now().date(),
                             className="mb-2"
                         )
@@ -544,10 +546,10 @@ def update_date_range(selected_range):
         start_date = end_date - timedelta(days=1)
     elif selected_range == 'last_week':
         start_date = end_date - timedelta(days=7)
-    elif selected_range == 'last_month':
-        start_date = end_date - timedelta(days=30)
+    elif selected_range == 'last_two_weeks':
+        start_date = end_date - timedelta(days=14)
     else:
-        start_date = end_date - timedelta(days=30)
+        start_date = end_date - timedelta(days=14)
     return start_date, end_date
 
 
