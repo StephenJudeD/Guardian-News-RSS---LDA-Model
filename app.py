@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
 import dash
 from dash import Dash, html, dcc, Input, Output, State, dash_table
 import dash_bootstrap_components as dbc
@@ -58,14 +61,18 @@ nltk.download('stopwords')
 stop_words = set(stopwords.words('english')).union(CUSTOM_STOP_WORDS)
 
 # ─────────────────────────────────────────────────────────────────────
-# GuardianFetcher (expects a .py that fetches articles)
+# GuardianFetcher
 # ─────────────────────────────────────────────────────────────────────
 guardian = GuardianFetcher(GUARDIAN_API_KEY)
 
 # ─────────────────────────────────────────────────────────────────────
-# Dash App Setup
+# Dash Setup
 # ─────────────────────────────────────────────────────────────────────
-app = Dash(__name__, external_stylesheets=[dbc.themes.JOURNAL])
+# We use a custom color reminiscent of The Guardian’s blues for the navbar.
+# For the general layout, we favor white backgrounds and navy highlights.
+# You can tweak these further for a Guardian-like aesthetic.
+# ─────────────────────────────────────────────────────────────────────
+app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 server = app.server
 app.config.suppress_callback_exceptions = True
 
@@ -75,38 +82,34 @@ app.config.suppress_callback_exceptions = True
 @lru_cache(maxsize=64)
 def process_articles(start_date, end_date):
     """
-    Fetch articles from Guardian, filter by date,
-    tokenize, train LDA, return (df, texts, dictionary, corpus, lda_model).
-    We keep LDA passes low to avoid hitting Heroku 30s timeouts.
+    Fetch articles from Guardian, filter by date, tokenize, train LDA.
+    Returns (df, texts, dictionary, corpus, lda_model).
     """
     try:
         logger.info(f"Fetching articles from {start_date} to {end_date}")
         
-        # Date parsing
         start_date_dt = datetime.strptime(start_date, '%Y-%m-%d').date()
         end_date_dt = datetime.strptime(end_date, '%Y-%m-%d').date()
         days_back = (datetime.now().date() - start_date_dt).days + 1
         
-        # Fetch the articles
+        # Fetch
         df = guardian.fetch_articles(days_back=days_back, page_size=200)
         if df.empty:
             logger.warning("No articles fetched!")
             return None, None, None, None, None
         
-        # Filter to date range
         df = df[
             (df['published'].dt.date >= start_date_dt) &
             (df['published'].dt.date <= end_date_dt)
         ]
-        logger.info(f"Filtered to {len(df)} articles within date range")
+        logger.info(f"Filtered to {len(df)} articles in date range")
         if len(df) < 5:
-            logger.warning("Not enough articles for meaningful LDA.")
+            logger.warning("Not enough articles for LDA.")
             return None, None, None, None, None
         
-        # Reset index so df.index is 0..(len(df)-1)
         df.reset_index(drop=True, inplace=True)
         
-        # Tokenize and remove stop words
+        # Tokenize
         texts = []
         for i in range(len(df)):
             content = df.at[i, 'content']
@@ -120,12 +123,10 @@ def process_articles(start_date, end_date):
             ]
             texts.append(filtered)
         
-        # Gensim dictionary + corpus
         dictionary = corpora.Dictionary(texts)
         corpus = [dictionary.doc2bow(t) for t in texts]
         
-        # Train LDA with fewer passes => faster on Heroku
-        # e.g. passes=5 or 10 instead of 20
+        # Train LDA
         lda_model = models.LdaModel(
             corpus=corpus,
             num_topics=5,
@@ -135,7 +136,7 @@ def process_articles(start_date, end_date):
             chunksize=100
         )
         
-        logger.info(f"Successfully processed {len(df)} articles")
+        logger.info(f"Processed {len(df)} articles successfully")
         return df, texts, dictionary, corpus, lda_model
     except Exception as e:
         logger.error(f"Error in process_articles: {e}", exc_info=True)
@@ -146,12 +147,13 @@ def process_articles(start_date, end_date):
 # ─────────────────────────────────────────────────────────────────────
 def create_word_cloud(topic_words):
     """
-    Build a word cloud from topic words (list of (word, prob) pairs).
+    Word cloud from LDA topic-word pairs.
+    Changed background to WHITE.
     """
     try:
         freq_dict = dict(topic_words)
         wc = WordCloud(
-            background_color='black',
+            background_color='white',  # changed to white
             width=800,
             height=400,
             colormap='viridis'
@@ -167,8 +169,7 @@ def create_word_cloud(topic_words):
 
 def create_tsne_visualization(df, corpus, lda_model):
     """
-    Construct a t-SNE scatter plot from LDA topic vectors.
-    Use n_jobs=1 to avoid CPU detection errors on Heroku.
+    t-SNE scatter for all docs. Each doc gets a "dominant_topic".
     """
     try:
         if df is None or len(df) < 2:
@@ -177,28 +178,24 @@ def create_tsne_visualization(df, corpus, lda_model):
                 title='Not enough documents for t-SNE'
             )
         
-        # Build doc_topics from corpus
         doc_topics_list = []
-        for i in df.index:  # i = 0..(len(df)-1)
+        for i in df.index:
             topic_weights = [0.0]*lda_model.num_topics
             for topic_id, w in lda_model[corpus[i]]:
                 topic_weights[topic_id] = w
             doc_topics_list.append(topic_weights)
         
         doc_topics_array = np.array(doc_topics_list, dtype=np.float32)
-        # If fewer than 2 docs => skip
         if len(doc_topics_array) < 2:
             return go.Figure().update_layout(
                 template='plotly',
                 title='Not enough docs for t-SNE'
             )
         
-        # Adjust perplexity
         perplex_val = 30
         if len(doc_topics_array) < 30:
             perplex_val = max(2, len(doc_topics_array) - 1)
         
-        # Set n_jobs=1 to avoid CPU detection errors
         tsne = TSNE(
             n_components=2,
             random_state=42,
@@ -210,7 +207,7 @@ def create_tsne_visualization(df, corpus, lda_model):
         scatter_df = pd.DataFrame({
             'x': embedded[:, 0],
             'y': embedded[:, 1],
-            'dominant_topic': [np.argmax(arr) + 1 for arr in doc_topics_array],
+            'dominant_topic': [np.argmax(row) for row in doc_topics_array],
             'doc_index': df.index,
             'title': df['title']
         })
@@ -230,94 +227,146 @@ def create_tsne_visualization(df, corpus, lda_model):
         return go.Figure().update_layout(template='plotly', title=f"t-SNE Error: {e}")
 
 # ─────────────────────────────────────────────────────────────────────
-# Layout
+# Guardian-Like Theming
 # ─────────────────────────────────────────────────────────────────────
-navbar = dbc.NavbarSimple(
-    brand="Guardian News Topic Explorer",
-    brand_href="#",
-    color="primary",
+# We'll adopt a mostly white background, navy bars, subtle gray text for a 
+# Guardian-style feeling. We override the default Navbar colors with "style={}"
+# because we want a darker navy color reminiscent of Guardian’s palette: #052962.
+# ─────────────────────────────────────────────────────────────────────
+
+NAVY_BLUE = "#052962"
+
+navbar = dbc.Navbar(
+    [
+        dbc.Row(
+            [
+                dbc.Col(html.Img(src="", height="30px"), width="auto"),
+                dbc.Col(
+                    dbc.NavbarBrand(
+                        "Guardian News Topic Explorer",
+                        className="ms-2",
+                        style={"color": "white", "fontWeight": "bold", "fontSize": "1.2rem"}
+                    )
+                )
+            ],
+            align="center",
+            className="g-0",
+        )
+    ],
+    color=NAVY_BLUE,
     dark=True,
-    className="mb-4"
+    className="mb-2 px-3"
 )
 
-banner = dbc.Container(
+# Top controls across the screen
+controls_row = dbc.Row(
     [
-        html.H1("Guardian News Topic Explorer 📰", className="display-3 fw-bold"),
-        html.P(
-            "Interactive topic modeling and clustering of Guardian articles. Fewer LDA passes for faster load on Heroku.",
-            className="lead text-muted"
-        ),
-    ],
-    fluid=True,
-    className="py-5 my-4 bg-light rounded-3 text-center"
-)
-
-controls_card = dbc.Card(
-    [
-        dbc.CardHeader(html.H4("Controls")),
-        dbc.CardBody([
-            dbc.RadioItems(
-                id='date-select-buttons',
-                options=[
-                    {'label': 'Last Day', 'value': 'last_day'},
-                    {'label': 'Last Week', 'value': 'last_week'},
-                    {'label': 'Last Month', 'value': 'last_month'},
+        dbc.Col(
+            dbc.Card(
+                [
+                    dbc.CardHeader("Select Date Range", style={"backgroundColor": NAVY_BLUE, "color": "white"}),
+                    dbc.CardBody([
+                        dbc.RadioItems(
+                            id='date-select-buttons',
+                            options=[
+                                {'label': 'Last Day', 'value': 'last_day'},
+                                {'label': 'Last Week', 'value': 'last_week'},
+                                {'label': 'Last Month', 'value': 'last_month'},
+                            ],
+                            value='last_month',
+                            inline=True,
+                            className="mb-3"
+                        ),
+                        dcc.DatePickerRange(
+                            id='date-range',
+                            start_date=(datetime.now() - timedelta(days=30)).date(),
+                            end_date=datetime.now().date(),
+                            className="mb-2"
+                        )
+                    ]),
                 ],
-                value='last_month',
-                inline=True,
-                className="mb-3"
+                className="mb-2",
+                style={"backgroundColor": "white"}
             ),
-            dcc.DatePickerRange(
-                id='date-range',
-                start_date=(datetime.now() - timedelta(days=30)).date(),
-                end_date=datetime.now().date(),
-                className="mb-3"
+            md=4
+        ),
+        dbc.Col(
+            dbc.Card(
+                [
+                    dbc.CardHeader("Select Topics", style={"backgroundColor": NAVY_BLUE, "color": "white"}),
+                    dbc.CardBody([
+                        dcc.Dropdown(
+                            id='topic-filter',
+                            # We'll label as Topic 0..4 to avoid off-by-1 confusion:
+                            options=[{'label': f'Topic {i}', 'value': i} for i in range(5)],
+                            multi=True,
+                            placeholder="Filter by topics...",
+                            className="mb-2"
+                        )
+                    ]),
+                ],
+                className="mb-2",
+                style={"backgroundColor": "white"}
             ),
-            dcc.Dropdown(
-                id='topic-filter',
-                options=[{'label': f'Topic {i+1}', 'value': i} for i in range(5)],
-                multi=True,
-                placeholder="Filter by topics...",
-                className="mb-3"
-            )
-        ])
+            md=4
+        ),
+        dbc.Col(md=4)  # blank space or future expansion
     ],
-    className="mb-4 shadow"
+    className="my-2 px-2"
 )
 
-topic_distribution_card = dbc.Card(
-    [
-        dbc.CardHeader("Topic Word Distributions", className="bg-secondary text-light"),
-        dbc.CardBody([
-            dcc.Graph(id='topic-distribution', style={"height": "400px"})
-        ])
-    ],
-    className="mb-4 shadow"
-)
+# ─────────────────────────────────────────────────────────────────────
+# Main Content Layout
+# ─────────────────────────────────────────────────────────────────────
+# We stack: 
+# 1) Topic Distributions (top) same height as t-SNE (top)
+# 2) Word Cloud (below t-SNE) same height
+# 3) Article Table
+#
+# We define "height: 600px" for both the bar chart (Topic Dist) and the TSNE
+# to ensure they match in vertical size. 
+# Then the word cloud also 600px high, below them.
+# ─────────────────────────────────────────────────────────────────────
 
-word_cloud_card = dbc.Card(
+topic_dist_card = dbc.Card(
     [
-        dbc.CardHeader("Word Cloud", className="bg-secondary text-light"),
-        dbc.CardBody([
-            dcc.Graph(id='word-cloud', style={"height": "400px"})
-        ])
+        dbc.CardHeader("Topic Word Distributions", style={"backgroundColor": "white", "fontWeight": "bold"}),
+        dbc.CardBody(
+            dcc.Graph(id='topic-distribution', style={"height": "600px"}),
+            style={"backgroundColor": "white"}
+        )
     ],
-    className="mb-4 shadow"
+    className="mb-3",
+    style={"backgroundColor": "white"}
 )
 
 tsne_card = dbc.Card(
     [
-        dbc.CardHeader("t-SNE Topic Clustering", className="bg-secondary text-light"),
-        dbc.CardBody([
-            dcc.Graph(id='tsne-plot', style={"height": "600px"})
-        ])
+        dbc.CardHeader("t-SNE Topic Clustering", style={"backgroundColor": "white", "fontWeight": "bold"}),
+        dbc.CardBody(
+            dcc.Graph(id='tsne-plot', style={"height": "600px"}),
+            style={"backgroundColor": "white"}
+        )
     ],
-    className="mb-4 shadow"
+    className="mb-3",
+    style={"backgroundColor": "white"}
 )
 
-articles_table_card = dbc.Card(
+wordcloud_card = dbc.Card(
     [
-        dbc.CardHeader("Article Details", className="bg-secondary text-light"),
+        dbc.CardHeader("Word Cloud", style={"backgroundColor": "white", "fontWeight": "bold"}),
+        dbc.CardBody(
+            dcc.Graph(id='word-cloud', style={"height": "600px"}),
+            style={"backgroundColor": "white"}
+        )
+    ],
+    className="mb-3",
+    style={"backgroundColor": "white"}
+)
+
+article_table_card = dbc.Card(
+    [
+        dbc.CardHeader("Article Details", style={"backgroundColor": NAVY_BLUE, "color": "white"}),
         dbc.CardBody([
             dash_table.DataTable(
                 id='article-details',
@@ -329,40 +378,40 @@ articles_table_card = dbc.Card(
                 ],
                 style_table={'overflowX': 'auto'},
                 style_cell={
-                    'backgroundColor': 'rgb(50,50,50)',
-                    'color': 'white',
+                    'backgroundColor': 'white',
+                    'color': 'black',
                     'textAlign': 'left',
                     'whiteSpace': 'normal',
                     'height': 'auto'
                 },
                 style_header={
-                    'backgroundColor': 'rgb(30,30,30)',
+                    'backgroundColor': NAVY_BLUE,
+                    'color': 'white',
                     'fontWeight': 'bold'
                 },
                 page_size=10
             )
-        ])
+        ], style={"backgroundColor": "white"})
     ],
-    className="mb-4 shadow"
+    className="mb-3",
+    style={"backgroundColor": "white"}
 )
 
 app.layout = dbc.Container([
     navbar,
-    banner,
+    controls_row,
     dbc.Row([
-        dbc.Col(controls_card, md=4),
-        dbc.Col([
-            topic_distribution_card,
-            word_cloud_card
-        ], md=8)
-    ], align="start"),
-    dbc.Row([dbc.Col(tsne_card, md=12)]),
-    dbc.Row([dbc.Col(articles_table_card, md=12)])
-], fluid=True)
+        dbc.Col(topic_dist_card, md=6),
+        dbc.Col(tsne_card, md=6),
+    ], className="g-3"),
+    dbc.Row([dbc.Col(wordcloud_card, md=12)], className="g-3"),
+    dbc.Row([dbc.Col(article_table_card, md=12)], className="g-3"),
+], fluid=True, style={"backgroundColor": "#f9f9f9"})
 
 # ─────────────────────────────────────────────────────────────────────
 # Callbacks
 # ─────────────────────────────────────────────────────────────────────
+
 @app.callback(
     [Output('date-range', 'start_date'),
      Output('date-range', 'end_date')],
@@ -370,7 +419,7 @@ app.layout = dbc.Container([
 )
 def update_date_range(selected_range):
     """
-    Sync date picker with radio items for convenience.
+    Sync date picker with radio items.
     """
     end_date = datetime.now().date()
     if selected_range == 'last_day':
@@ -398,75 +447,83 @@ def update_date_range(selected_range):
 )
 def update_visuals(start_date, end_date, selected_topics):
     """
-    1) Pull data from process_articles
-    2) Build topic distribution, word cloud for the 1st selected topic
-    3) t-SNE scatter
-    4) Article table with selected topics
+    Main callback:
+    1) Fetch/Process Articles
+    2) Topic Word Distribution
+    3) Word Cloud for first selected topic
+    4) TSNE
+    5) Table with selected topics
     """
     try:
-        logger.info(f"Updating from {start_date} to {end_date}, topics={selected_topics}")
+        logger.info(f"update_visuals: {start_date} to {end_date}, topics={selected_topics}")
         df, texts, dictionary, corpus, lda_model = process_articles(start_date, end_date)
         if df is None or df.empty:
-            # return placeholders
-            logger.error("No data returned from process_articles.")
-            empty_fig = go.Figure().update_layout(template='plotly')
+            empty_fig = go.Figure().update_layout(template='plotly', title="No Data")
             return empty_fig, empty_fig, empty_fig, []
         
+        # If no topic selected, default to all topics [0..4]
         if not selected_topics:
             selected_topics = list(range(lda_model.num_topics))
         
-        # Create bar chart of top words for each selected topic
-        terms = []
+        # 1) Topic Word Distributions
+        # We gather top words from each chosen topic and show 20 words.
+        words_list = []
         for t_id in selected_topics:
-            topn = lda_model.show_topic(t_id, topn=10)
-            for word, prob in topn:
-                terms.append((word, prob, t_id))
+            top_pairs = lda_model.show_topic(t_id, topn=20)
+            for (word, prob) in top_pairs:
+                words_list.append((word, prob, t_id))
         
-        if not terms:
-            # fallback if user picks invalid topics
-            dist_fig = go.Figure().update_layout(template='plotly', title='No topics selected')
+        if not words_list:
+            dist_fig = go.Figure().update_layout(template='plotly', title="No topics selected")
         else:
-            tmp_df = pd.DataFrame(terms, columns=['word', 'probability', 'topic'])
+            df_dist = pd.DataFrame(words_list, columns=["word", "prob", "topic"])
             dist_fig = px.bar(
-                tmp_df,
-                x='probability',
-                y='word',
-                color='topic',
-                orientation='h',
-                title='Topic Word Distributions'
+                df_dist,
+                x="prob",
+                y="word",
+                color="topic",
+                orientation="h",
+                title="Topic Word Distributions"
             )
-            dist_fig.update_layout(template='plotly')
+            dist_fig.update_layout(template='plotly', yaxis={'categoryorder': 'total ascending'})
         
-        # Word cloud from the first selected topic
-        first_t = selected_topics[0]
-        wcloud_fig = create_word_cloud(lda_model.show_topic(first_t, topn=30))
+        # 2) Word Cloud for the first selected topic
+        # (We interpret the "first" in the list for the cloud)
+        first_topic = selected_topics[0]
+        wc_fig = create_word_cloud(lda_model.show_topic(first_topic, topn=30))
         
-        # t-SNE scatter
+        # 3) t-SNE scatter
         tsne_fig = create_tsne_visualization(df, corpus, lda_model)
         
-        # Build the table data
-        # Attach topic distribution for each doc, filtering to selected topics
-        table_rows = []
+        # 4) Build table data
+        # For each doc, gather topic distribution, keep only selected topics
+        table_data = []
         for i in df.index:
             doc_topics = lda_model.get_document_topics(corpus[i])
-            row_topics = []
-            for t_id, weight in sorted(doc_topics, key=lambda x: x[1], reverse=True):
-                if t_id in selected_topics:
-                    row_topics.append(f"Topic {t_id+1}: {weight:.3f}")
-            table_rows.append({
+            # doc_topics is like [(topic_id, weight), ...]
+            # We collect those relevant to selected_topics
+            these_topics = []
+            for (tid, w) in sorted(doc_topics, key=lambda x: x[1], reverse=True):
+                if tid in selected_topics:
+                    # We'll label them as "Topic i" with no +1 offset
+                    these_topics.append(f"Topic {tid}: {w:.3f}")
+            table_data.append({
                 'title': df.at[i, 'title'],
                 'section': df.at[i, 'section'],
                 'published': df.at[i, 'published'].strftime('%Y-%m-%d %H:%M'),
-                'topics': '\n'.join(row_topics)
+                'topics': '\n'.join(these_topics)
             })
         
-        return dist_fig, wcloud_fig, tsne_fig, table_rows
+        return dist_fig, wc_fig, tsne_fig, table_data
     
     except Exception as e:
-        logger.error(f"Main callback error: {e}", exc_info=True)
-        empty_fig = go.Figure().update_layout(template='plotly')
+        logger.error(f"update_visuals error: {e}", exc_info=True)
+        empty_fig = go.Figure().update_layout(template='plotly', title=f"Error: {e}")
         return empty_fig, empty_fig, empty_fig, []
 
+# ─────────────────────────────────────────────────────────────────────
+# Main
+# ─────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     port = int(os.getenv('PORT', 8050))
     app.run_server(debug=True, port=port)
