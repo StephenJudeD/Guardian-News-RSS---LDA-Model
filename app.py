@@ -1,6 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
 import dash
 from dash import Dash, html, dcc, Input, Output, State, dash_table
 import dash_bootstrap_components as dbc
@@ -11,7 +8,6 @@ from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
 
-# NEW OR UPDATED
 from gensim import corpora, models
 from gensim.models.phrases import Phrases, Phraser
 
@@ -41,15 +37,14 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────
 # Stop words (Expanded)
 # ─────────────────────────────────────────────────────────────────────
-
-# NEW OR UPDATED: You can keep adding more if you want.
 CUSTOM_STOP_WORDS = {
     'says', 'said', 'would', 'also', 'one', 'new', 'like', 'get', 'make', 
     'first', 'two', 'year', 'years', 'time', 'way', 'says', 'say', 'saying',
     'according', 'told', 'reuters', 'guardian', 'monday', 'tuesday', 'wednesday',
     'thursday', 'friday', 'saturday', 'sunday', 'week', 'month', 'us', 'people',
     'government', 'could', 'will', 'may', 'trump', 'published', 'article',
-    'editor', 'nt', 'dont', 'doesnt', 'cant', 'couldnt', 'shouldnt'
+    'editor', 'nt', 'dont', 'doesnt', 'cant', 'couldnt', 'shouldnt', 'one', 'two', 'three',
+    'take', 'even', 'days', 'four', 'might'
 }
 
 # ─────────────────────────────────────────────────────────────────────
@@ -83,9 +78,8 @@ app.config.suppress_callback_exceptions = True
 @lru_cache(maxsize=64)
 def process_articles(start_date, end_date):
     """
-    Fetch articles from Guardian, filter by date, tokenize, train LDA.
-    Incorporates bigrams and trigrams.
-
+    Fetch articles from Guardian, filter by date,
+    tokenize, detect bigrams/trigrams, train LDA.
     Returns (df, texts, dictionary, corpus, lda_model).
     """
     try:
@@ -119,23 +113,18 @@ def process_articles(start_date, end_date):
                 tokenized_texts.append([])
                 continue
             words = word_tokenize(str(content))
-            # Basic cleaning: keep only alnum & not in stop words
             filtered = [
                 w.lower() for w in words
                 if w.isalnum() and w.lower() not in stop_words
             ]
             tokenized_texts.append(filtered)
 
-        # ─────────────────────────────────────────────────────────────
-        # NEW OR UPDATED: Bigrams & Trigrams
-        # ─────────────────────────────────────────────────────────────
-        # Let's create bigram + trigram models via Gensim Phrases
+        # Build bigrams & trigrams
         bigram_phrases = Phrases(tokenized_texts, min_count=5, threshold=10)
         trigram_phrases = Phrases(bigram_phrases[tokenized_texts], threshold=10)
         bigram = Phraser(bigram_phrases)
         trigram = Phraser(trigram_phrases)
 
-        # Apply them to the tokenized texts
         texts = []
         for t in tokenized_texts:
             bigrammed = bigram[t]
@@ -248,7 +237,7 @@ def create_tsne_visualization_3d(df, corpus, lda_model):
 
 def create_bubble_chart(df):
     """
-    Bubble chart of doc length vs published date, sized by doc length, colored by dominant_topic.
+    Bubble chart: doc length vs published date, sized by doc length, colored by dominant_topic.
     """
     try:
         if df is None or df.empty or 'doc_length' not in df.columns or 'dominant_topic' not in df.columns:
@@ -271,6 +260,47 @@ def create_bubble_chart(df):
     except Exception as e:
         logger.error(f"Error creating bubble chart: {e}", exc_info=True)
         return go.Figure().update_layout(template='plotly', title=f"Bubble Chart Error: {e}")
+
+
+def create_ngram_bar_chart(texts):
+    """
+    Creates a bar chart of the most common bigrams/trigrams 
+    (indicated by underscores in the tokens).
+    We'll pick the top 15 by frequency.
+    """
+    try:
+        # We'll gather all tokens that contain underscores => bigram or trigram
+        ngram_counts = {}
+        for tokens in texts:
+            for tok in tokens:
+                if "_" in tok:  # bigram or trigram sign
+                    ngram_counts[tok] = ngram_counts.get(tok, 0) + 1
+        
+        if not ngram_counts:
+            # If none found, return empty
+            return go.Figure().update_layout(
+                template='plotly',
+                title="No bigrams/trigrams found"
+            )
+        
+        # Sort descending by count
+        sorted_ngrams = sorted(ngram_counts.items(), key=lambda x: x[1], reverse=True)
+        top_ngrams = sorted_ngrams[:15]  # top 15
+        df_ngram = pd.DataFrame(top_ngrams, columns=["ngram", "count"])
+        
+        fig = px.bar(
+            df_ngram,
+            x="count",
+            y="ngram",
+            orientation="h",
+            title="Top Bigrams & Trigrams"
+        )
+        fig.update_layout(template='plotly', yaxis={"categoryorder": "total ascending"})
+        return fig
+    
+    except Exception as e:
+        logger.error(f"Error creating ngram bar chart: {e}", exc_info=True)
+        return go.Figure().update_layout(template='plotly', title=f"Ngram Bar Chart Error: {e}")
 
 # ─────────────────────────────────────────────────────────────────────
 # Theming (Guardian-like)
@@ -349,7 +379,7 @@ controls_row = dbc.Row(
             ),
             md=4
         ),
-        dbc.Col(md=4)  # Blank space or future expansions
+        dbc.Col(md=4)  
     ],
     className="my-2 px-2"
 )
@@ -358,7 +388,6 @@ topic_dist_card = dbc.Card(
     [
         dbc.CardHeader("Topic Word Distributions", style={"backgroundColor": "white", "fontWeight": "bold"}),
         dbc.CardBody(
-            # NEW OR UPDATED: Wrap the graph in a Loading spinner
             dcc.Loading(
                 id="loading-topic-dist",
                 type="circle",
@@ -419,6 +448,23 @@ bubble_chart_card = dbc.Card(
     style={"backgroundColor": "white"}
 )
 
+# NEW: Bigrams & Trigrams Chart
+bigrams_trigrams_card = dbc.Card(
+    [
+        dbc.CardHeader("Bigrams & Trigrams", style={"backgroundColor": "white", "fontWeight": "bold"}),
+        dbc.CardBody(
+            dcc.Loading(
+                id="loading-bigrams-trigrams",
+                type="circle",
+                children=[dcc.Graph(id='bigrams-trigrams', style={"height": "600px"})]
+            ),
+            style={"backgroundColor": "white"}
+        )
+    ],
+    className="mb-3",
+    style={"backgroundColor": "white"}
+)
+
 article_table_card = dbc.Card(
     [
         dbc.CardHeader("Article Details", style={"backgroundColor": NAVY_BLUE, "color": "white"}),
@@ -459,6 +505,7 @@ app.layout = dbc.Container([
     dbc.Row([dbc.Col(tsne_3d_card, md=12)], className="g-3"),
     dbc.Row([dbc.Col(wordcloud_card, md=12)], className="g-3"),
     dbc.Row([dbc.Col(bubble_chart_card, md=12)], className="g-3"),
+    dbc.Row([dbc.Col(bigrams_trigrams_card, md=12)], className="g-3"),  # new row
     dbc.Row([dbc.Col(article_table_card, md=12)], className="g-3"),
 ], fluid=True, style={"backgroundColor": "#f9f9f9"})
 
@@ -492,6 +539,7 @@ def update_date_range(selected_range):
         Output('word-cloud', 'figure'),
         Output('tsne-plot', 'figure'),
         Output('bubble-chart', 'figure'),
+        Output('bigrams-trigrams', 'figure'),  # NEW OUTPUT
         Output('article-details', 'data')
     ],
     [
@@ -507,7 +555,8 @@ def update_visuals(start_date, end_date, selected_topics):
     2) Word Cloud
     3) 3D t-SNE
     4) Bubble Chart
-    5) Article Table
+    5) Bigrams & Trigrams Bar Chart
+    6) Article Table
     """
     try:
         logger.info(f"update_visuals: {start_date} to {end_date}, topics={selected_topics}")
@@ -515,7 +564,7 @@ def update_visuals(start_date, end_date, selected_topics):
         df, texts, dictionary, corpus, lda_model = process_articles(start_date, end_date)
         if df is None or df.empty:
             empty_fig = go.Figure().update_layout(template='plotly', title="No Data")
-            return empty_fig, empty_fig, empty_fig, empty_fig, []
+            return empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, []
         
         # If no topic selected, default to all topics [0..4]
         if not selected_topics:
@@ -565,7 +614,10 @@ def update_visuals(start_date, end_date, selected_topics):
         df["dominant_topic"] = doc_dominant_topics
         bubble_fig = create_bubble_chart(df)
         
-        # 5) Table data
+        # 5) Bigrams & Trigrams bar chart
+        ngram_fig = create_ngram_bar_chart(texts)
+        
+        # 6) Table data
         table_data = []
         for i in df.index:
             doc_topics = lda_model.get_document_topics(corpus[i])
@@ -580,12 +632,12 @@ def update_visuals(start_date, end_date, selected_topics):
                 'topics': '\n'.join(these_topics)
             })
         
-        return dist_fig, wc_fig, tsne_fig, bubble_fig, table_data
+        return dist_fig, wc_fig, tsne_fig, bubble_fig, ngram_fig, table_data
     
     except Exception as e:
         logger.error(f"update_visuals error: {e}", exc_info=True)
         empty_fig = go.Figure().update_layout(template='plotly', title=f"Error: {e}")
-        return empty_fig, empty_fig, empty_fig, empty_fig, []
+        return empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, []
 
 # ─────────────────────────────────────────────────────────────────────
 # Main
