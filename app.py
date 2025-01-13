@@ -41,7 +41,7 @@ CUSTOM_STOP_WORDS = {
     'says', 'said', 'would', 'also', 'one', 'new',
     'us', 'people', 'government', 'could', 'will',
     'may', 'like', 'get', 'make', 'first', 'two',
-    'year', 'years', 'time', 'way', 'says', 'trump',
+    'year', 'years', 'time', 'way', 'says', 
     'according', 'told', 'reuters', 'guardian',
     'monday', 'tuesday', 'wednesday', 'thursday', 'friday',
     'saturday', 'sunday', 'week', 'month'
