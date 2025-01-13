@@ -316,7 +316,11 @@ navbar = dbc.Navbar(
                     dbc.NavbarBrand(
                         "Guardian News Topic Explorer",
                         className="ms-2",
-                        style={"color": "white", "fontWeight": "bold", "fontSize": "1.2rem"}
+                        style={
+                            "color": "white",
+                            "fontWeight": "bold",
+                            "fontSize": "2.4rem"  # Double the font size
+                        }
                     )
                 )
             ],
