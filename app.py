@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
 import dash
 from dash import Dash, html, dcc, Input, Output, State, dash_table
 import dash_bootstrap_components as dbc
@@ -38,13 +41,12 @@ logger = logging.getLogger(__name__)
 # Stop words (Expanded)
 # ─────────────────────────────────────────────────────────────────────
 CUSTOM_STOP_WORDS = {
-    'says', 'said', 'would', 'also', 'one', 'new', 'like', 'get', 'make', 
+    'says', 'said', 'would', 'also', 'one', 'new', 'like', 'get', 'make',
     'first', 'two', 'year', 'years', 'time', 'way', 'says', 'say', 'saying',
     'according', 'told', 'reuters', 'guardian', 'monday', 'tuesday', 'wednesday',
     'thursday', 'friday', 'saturday', 'sunday', 'week', 'month', 'us', 'people',
     'government', 'could', 'will', 'may', 'trump', 'published', 'article',
-    'editor', 'nt', 'dont', 'doesnt', 'cant', 'couldnt', 'shouldnt', 'one', 'two', 'three',
-    'take', 'even', 'days', 'four', 'might'
+    'editor', 'nt', 'dont', 'doesnt', 'cant', 'couldnt', 'shouldnt'
 }
 
 # ─────────────────────────────────────────────────────────────────────
@@ -72,28 +74,29 @@ app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 server = app.server
 app.config.suppress_callback_exceptions = True
 
+
 # ─────────────────────────────────────────────────────────────────────
 # Data Processing
 # ─────────────────────────────────────────────────────────────────────
 @lru_cache(maxsize=64)
 def process_articles(start_date, end_date):
     """
-    Fetch articles from Guardian, filter by date,
-    tokenize, detect bigrams/trigrams, train LDA.
+    Fetch articles from The Guardian, filter by date,
+    tokenize, detect bigrams/trigrams, then train LDA on the ENTIRE set.
     Returns (df, texts, dictionary, corpus, lda_model).
     """
     try:
         logger.info(f"Fetching articles from {start_date} to {end_date}")
-        
+
         start_date_dt = datetime.strptime(start_date, '%Y-%m-%d').date()
         end_date_dt = datetime.strptime(end_date, '%Y-%m-%d').date()
         days_back = (datetime.now().date() - start_date_dt).days + 1
-        
+
         df = guardian.fetch_articles(days_back=days_back, page_size=200)
         if df.empty:
             logger.warning("No articles fetched!")
             return None, None, None, None, None
-        
+
         df = df[
             (df['published'].dt.date >= start_date_dt) &
             (df['published'].dt.date <= end_date_dt)
@@ -102,9 +105,9 @@ def process_articles(start_date, end_date):
         if len(df) < 5:
             logger.warning("Not enough articles for LDA.")
             return None, None, None, None, None
-        
+
         df.reset_index(drop=True, inplace=True)
-        
+
         # Tokenize
         tokenized_texts = []
         for i in df.index:
@@ -134,7 +137,7 @@ def process_articles(start_date, end_date):
         # Gensim dictionary + corpus
         dictionary = corpora.Dictionary(texts)
         corpus = [dictionary.doc2bow(t) for t in texts]
-        
+
         # Train LDA
         lda_model = models.LdaModel(
             corpus=corpus,
@@ -144,13 +147,14 @@ def process_articles(start_date, end_date):
             random_state=42,
             chunksize=100
         )
-        
+
         logger.info(f"Processed {len(df)} articles successfully")
         return df, texts, dictionary, corpus, lda_model
 
     except Exception as e:
         logger.error(f"Error in process_articles: {e}", exc_info=True)
         return None, None, None, None, None
+
 
 # ─────────────────────────────────────────────────────────────────────
 # Visualization Helpers
@@ -176,6 +180,7 @@ def create_word_cloud(topic_words):
         logger.error(f"Error creating word cloud: {e}", exc_info=True)
         return go.Figure().update_layout(template='plotly')
 
+
 def create_tsne_visualization_3d(df, corpus, lda_model):
     """
     3D t-SNE scatter: n_components=3, scatter_3d.
@@ -186,25 +191,25 @@ def create_tsne_visualization_3d(df, corpus, lda_model):
                 template='plotly',
                 title='Not enough documents for t-SNE'
             )
-        
+
         doc_topics_list = []
         for i in df.index:
             topic_weights = [0.0]*lda_model.num_topics
             for topic_id, w in lda_model[corpus[i]]:
                 topic_weights[topic_id] = w
             doc_topics_list.append(topic_weights)
-        
+
         doc_topics_array = np.array(doc_topics_list, dtype=np.float32)
         if len(doc_topics_array) < 2:
             return go.Figure().update_layout(
                 template='plotly',
                 title='Not enough docs for t-SNE'
             )
-        
+
         perplex_val = 30
         if len(doc_topics_array) < 30:
             perplex_val = max(2, len(doc_topics_array) - 1)
-        
+
         tsne = TSNE(
             n_components=3,  # 3D
             random_state=42,
@@ -212,7 +217,7 @@ def create_tsne_visualization_3d(df, corpus, lda_model):
             n_jobs=1
         )
         embedded = tsne.fit_transform(doc_topics_array)  # shape: (N, 3)
-        
+
         scatter_df = pd.DataFrame({
             'x': embedded[:, 0],
             'y': embedded[:, 1],
@@ -221,7 +226,7 @@ def create_tsne_visualization_3d(df, corpus, lda_model):
             'doc_index': df.index,
             'title': df['title']
         })
-        
+
         fig = px.scatter_3d(
             scatter_df,
             x='x', y='y', z='z',
@@ -235,6 +240,7 @@ def create_tsne_visualization_3d(df, corpus, lda_model):
         logger.error(f"Error creating 3D t-SNE: {e}", exc_info=True)
         return go.Figure().update_layout(template='plotly', title=f"t-SNE Error: {e}")
 
+
 def create_bubble_chart(df):
     """
     Bubble chart: doc length vs published date, sized by doc length, colored by dominant_topic.
@@ -245,7 +251,7 @@ def create_bubble_chart(df):
                 template='plotly',
                 title='Bubble Chart Unavailable'
             )
-        
+
         fig = px.scatter(
             df,
             x='published',
@@ -264,30 +270,26 @@ def create_bubble_chart(df):
 
 def create_ngram_bar_chart(texts):
     """
-    Creates a bar chart of the most common bigrams/trigrams 
-    (indicated by underscores in the tokens).
+    Bar chart of the most common bigrams/trigrams (indicated by underscores).
     We'll pick the top 15 by frequency.
     """
     try:
-        # We'll gather all tokens that contain underscores => bigram or trigram
         ngram_counts = {}
         for tokens in texts:
             for tok in tokens:
-                if "_" in tok:  # bigram or trigram sign
+                if "_" in tok:
                     ngram_counts[tok] = ngram_counts.get(tok, 0) + 1
-        
+
         if not ngram_counts:
-            # If none found, return empty
             return go.Figure().update_layout(
                 template='plotly',
                 title="No bigrams/trigrams found"
             )
-        
-        # Sort descending by count
+
         sorted_ngrams = sorted(ngram_counts.items(), key=lambda x: x[1], reverse=True)
-        top_ngrams = sorted_ngrams[:15]  # top 15
+        top_ngrams = sorted_ngrams[:15]
         df_ngram = pd.DataFrame(top_ngrams, columns=["ngram", "count"])
-        
+
         fig = px.bar(
             df_ngram,
             x="count",
@@ -297,10 +299,10 @@ def create_ngram_bar_chart(texts):
         )
         fig.update_layout(template='plotly', yaxis={"categoryorder": "total ascending"})
         return fig
-    
     except Exception as e:
         logger.error(f"Error creating ngram bar chart: {e}", exc_info=True)
         return go.Figure().update_layout(template='plotly', title=f"Ngram Bar Chart Error: {e}")
+
 
 # ─────────────────────────────────────────────────────────────────────
 # Theming (Guardian-like)
@@ -316,11 +318,7 @@ navbar = dbc.Navbar(
                     dbc.NavbarBrand(
                         "Guardian News Topic Explorer",
                         className="ms-2",
-                        style={
-                            "color": "white",
-                            "fontWeight": "bold",
-                            "fontSize": "2.4rem"  # Double the font size
-                        }
+                        style={"color": "white", "fontWeight": "bold", "fontSize": "2.4rem"}
                     )
                 )
             ],
@@ -335,6 +333,7 @@ navbar = dbc.Navbar(
 
 controls_row = dbc.Row(
     [
+        # Date Range Card
         dbc.Col(
             dbc.Card(
                 [
@@ -362,8 +361,9 @@ controls_row = dbc.Row(
                 className="mb-2",
                 style={"backgroundColor": "white"}
             ),
-            md=4
+            md=3
         ),
+        # Topic Filter
         dbc.Col(
             dbc.Card(
                 [
@@ -381,9 +381,30 @@ controls_row = dbc.Row(
                 className="mb-2",
                 style={"backgroundColor": "white"}
             ),
-            md=4
+            md=3
         ),
-        dbc.Col(md=4)  
+        # Section Filter (empty for now, updated in callback)
+        dbc.Col(
+            dbc.Card(
+                [
+                    dbc.CardHeader("Select Sections", style={"backgroundColor": NAVY_BLUE, "color": "white"}),
+                    dbc.CardBody([
+                        dcc.Dropdown(
+                            id='section-filter',
+                            # Will be dynamically updated by callback
+                            options=[],  # placeholder
+                            multi=True,
+                            placeholder="Filter by sections...",
+                            className="mb-2"
+                        )
+                    ]),
+                ],
+                className="mb-2",
+                style={"backgroundColor": "white"}
+            ),
+            md=3
+        ),
+        dbc.Col(md=3)  # blank space
     ],
     className="my-2 px-2"
 )
@@ -452,7 +473,6 @@ bubble_chart_card = dbc.Card(
     style={"backgroundColor": "white"}
 )
 
-# NEW: Bigrams & Trigrams Chart
 bigrams_trigrams_card = dbc.Card(
     [
         dbc.CardHeader("Bigrams & Trigrams", style={"backgroundColor": "white", "fontWeight": "bold"}),
@@ -509,9 +529,10 @@ app.layout = dbc.Container([
     dbc.Row([dbc.Col(tsne_3d_card, md=12)], className="g-3"),
     dbc.Row([dbc.Col(wordcloud_card, md=12)], className="g-3"),
     dbc.Row([dbc.Col(bubble_chart_card, md=12)], className="g-3"),
-    dbc.Row([dbc.Col(bigrams_trigrams_card, md=12)], className="g-3"),  # new row
+    dbc.Row([dbc.Col(bigrams_trigrams_card, md=12)], className="g-3"),
     dbc.Row([dbc.Col(article_table_card, md=12)], className="g-3"),
 ], fluid=True, style={"backgroundColor": "#f9f9f9"})
+
 
 # ─────────────────────────────────────────────────────────────────────
 # Callbacks
@@ -534,8 +555,28 @@ def update_date_range(selected_range):
     elif selected_range == 'last_month':
         start_date = end_date - timedelta(days=30)
     else:
+        # default
         start_date = end_date - timedelta(days=30)
     return start_date, end_date
+
+
+@app.callback(
+    Output('section-filter', 'options'),
+    [
+        Input('date-range', 'start_date'),
+        Input('date-range', 'end_date')
+    ]
+)
+def update_section_filter_options(start_date, end_date):
+    """
+    Dynamically fetch unique sections from the DF to populate section dropdown.
+    """
+    df, texts, dictionary, corpus, lda_model = process_articles(start_date, end_date)
+    if df is None or df.empty:
+        return []
+    unique_sections = sorted(df['section'].dropna().unique())
+    return [{"label": s, "value": s} for s in unique_sections]
+
 
 @app.callback(
     [
@@ -543,43 +584,70 @@ def update_date_range(selected_range):
         Output('word-cloud', 'figure'),
         Output('tsne-plot', 'figure'),
         Output('bubble-chart', 'figure'),
-        Output('bigrams-trigrams', 'figure'),  # NEW OUTPUT
+        Output('bigrams-trigrams', 'figure'),
         Output('article-details', 'data')
     ],
     [
         Input('date-range', 'start_date'),
         Input('date-range', 'end_date'),
-        Input('topic-filter', 'value')
+        Input('topic-filter', 'value'),
+        Input('section-filter', 'value')
     ]
 )
-def update_visuals(start_date, end_date, selected_topics):
+def update_visuals(start_date, end_date, selected_topics, selected_sections):
     """
-    Main callback:
-    1) Topic Word Distributions
-    2) Word Cloud
-    3) 3D t-SNE
-    4) Bubble Chart
-    5) Bigrams & Trigrams Bar Chart
-    6) Article Table
+    Main callback: 
+    1) Train LDA on entire set (already done in process_articles).
+    2) Filter DF by chosen sections (if any).
+    3) Build & filter for topic visuals (if topics are chosen).
+    4) Return updated figures & table data.
     """
     try:
-        logger.info(f"update_visuals: {start_date} to {end_date}, topics={selected_topics}")
-        
+        logger.info(f"update_visuals: {start_date} to {end_date}, topics={selected_topics}, sections={selected_sections}")
+
         df, texts, dictionary, corpus, lda_model = process_articles(start_date, end_date)
         if df is None or df.empty:
             empty_fig = go.Figure().update_layout(template='plotly', title="No Data")
             return empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, []
-        
-        # If no topic selected, default to all topics [0..4]
+
+        # If user selected some sections, we filter df + texts + corpus
+        # NOTE: This does NOT retrain LDA on the subset. Topics remain from entire corpus.
+        if selected_sections:
+            # Filter df
+            mask = df['section'].isin(selected_sections)
+            df_filtered = df[mask].copy()
+            # We also need to filter texts and corpus accordingly
+            texts_filtered = []
+            corpus_filtered = []
+            idx_map = []
+            for i, row in enumerate(df.index):
+                if row in df_filtered.index:
+                    texts_filtered.append(texts[i])
+                    corpus_filtered.append(corpus[i])
+                    idx_map.append(row)
+            # reindex df_filtered
+            df_filtered.reset_index(drop=True, inplace=True)
+        else:
+            df_filtered = df.copy()
+            texts_filtered = texts
+            corpus_filtered = corpus
+            idx_map = list(df.index)
+
+        if df_filtered.empty:
+            empty_fig = go.Figure().update_layout(template='plotly', title="No Data (No sections match)")
+            return empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, []
+
+        # If no topic selected, default to [0..4]
         if not selected_topics:
             selected_topics = list(range(lda_model.num_topics))
-        
+
         # 1) Topic Word Distributions
         words_list = []
         for t_id in selected_topics:
             top_pairs = lda_model.show_topic(t_id, topn=20)
             for (w, prob) in top_pairs:
                 words_list.append((w, prob, t_id))
+
         if not words_list:
             dist_fig = go.Figure().update_layout(template='plotly', title="No topics selected")
         else:
@@ -593,59 +661,114 @@ def update_visuals(start_date, end_date, selected_topics):
                 title="Topic Word Distributions"
             )
             dist_fig.update_layout(template='plotly', yaxis={'categoryorder': 'total ascending'})
-        
+
         # 2) Word Cloud (take first selected topic)
         first_topic = selected_topics[0]
         wc_fig = create_word_cloud(lda_model.show_topic(first_topic, topn=30))
-        
+
         # 3) 3D t-SNE
-        tsne_fig = create_tsne_visualization_3d(df, corpus, lda_model)
-        
+        # We must pass the *filtered* df and corpus to the TSNE function
+        # but that function references doc index in the original df => we must adapt it
+        # For simplicity, let's clone the code so it can handle a filtered df:
+        if len(df_filtered) < 2:
+            tsne_fig = go.Figure().update_layout(
+                template='plotly',
+                title='Not enough docs for t-SNE (sections filter)'
+            )
+        else:
+            doc_topics_list = []
+            # reconstruct doc_topics_list from corpus_filtered
+            for c in corpus_filtered:
+                # c is doc2bow, so we do lda_model[c]
+                topic_weights = [0.0]*lda_model.num_topics
+                for topic_id, w in lda_model[c]:
+                    topic_weights[topic_id] = w
+                doc_topics_list.append(topic_weights)
+
+            doc_topics_array = np.array(doc_topics_list, dtype=np.float32)
+            if len(doc_topics_array) < 2:
+                tsne_fig = go.Figure().update_layout(
+                    template='plotly',
+                    title='Not enough docs for t-SNE (sections filter)'
+                )
+            else:
+                perplex_val = 30
+                if len(doc_topics_array) < 30:
+                    perplex_val = max(2, len(doc_topics_array) - 1)
+
+                tsne = TSNE(n_components=3, random_state=42, perplexity=perplex_val, n_jobs=1)
+                embedded = tsne.fit_transform(doc_topics_array)
+
+                # We'll build a small df for the scatter
+                scatter_rows = []
+                for row_i, doc_arr in enumerate(doc_topics_array):
+                    # row_i is in [0..len(df_filtered)-1], but we need the actual doc index from idx_map
+                    original_idx = idx_map[row_i]
+                    # find the row in df_filtered that corresponds
+                    # but we have it by direct indexing
+                    scatter_rows.append({
+                        'x': embedded[row_i, 0],
+                        'y': embedded[row_i, 1],
+                        'z': embedded[row_i, 2],
+                        'dominant_topic': int(np.argmax(doc_arr)),
+                        'title': df.at[original_idx, 'title']
+                    })
+
+                scatter_df = pd.DataFrame(scatter_rows)
+                tsne_fig = px.scatter_3d(
+                    scatter_df,
+                    x='x', y='y', z='z',
+                    color='dominant_topic',
+                    hover_data=['title'],
+                    title='3D t-SNE Topic Clustering'
+                )
+                tsne_fig.update_layout(template='plotly')
+
         # 4) Bubble Chart
         doc_lengths = []
         doc_dominant_topics = []
-        for i in df.index:
-            doc_topics = lda_model.get_document_topics(corpus[i])
-            n_tokens = len(texts[i]) if texts[i] else 0
+        for i, row_idx in enumerate(df_filtered.index):
+            c = corpus_filtered[i]
+            text_toks = texts_filtered[i]
+            doc_topics = lda_model.get_document_topics(c)
+            n_tokens = len(text_toks) if text_toks else 0
             doc_lengths.append(n_tokens)
             if doc_topics:
                 best_t = max(doc_topics, key=lambda x: x[1])[0]
             else:
                 best_t = -1
             doc_dominant_topics.append(best_t)
-        
-        df["doc_length"] = doc_lengths
-        df["dominant_topic"] = doc_dominant_topics
-        bubble_fig = create_bubble_chart(df)
-        
+
+        df_filtered["doc_length"] = doc_lengths
+        df_filtered["dominant_topic"] = doc_dominant_topics
+        bubble_fig = create_bubble_chart(df_filtered)
+
         # 5) Bigrams & Trigrams bar chart
-        ngram_fig = create_ngram_bar_chart(texts)
-        
-        # 6) Table data
+        ngram_fig = create_ngram_bar_chart(texts_filtered)
+
+        # 6) Article Table
         table_data = []
-        for i in df.index:
-            doc_topics = lda_model.get_document_topics(corpus[i])
+        for i, row_idx in enumerate(df_filtered.index):
+            doc_topics = lda_model.get_document_topics(corpus_filtered[i])
             these_topics = []
             for (tid, w) in sorted(doc_topics, key=lambda x: x[1], reverse=True):
                 if tid in selected_topics:
                     these_topics.append(f"Topic {tid}: {w:.3f}")
             table_data.append({
-                'title': df.at[i, 'title'],
-                'section': df.at[i, 'section'],
-                'published': df.at[i, 'published'].strftime('%Y-%m-%d %H:%M'),
+                'title': df_filtered.at[i, 'title'],
+                'section': df_filtered.at[i, 'section'],
+                'published': df_filtered.at[i, 'published'].strftime('%Y-%m-%d %H:%M'),
                 'topics': '\n'.join(these_topics)
             })
-        
+
         return dist_fig, wc_fig, tsne_fig, bubble_fig, ngram_fig, table_data
-    
+
     except Exception as e:
         logger.error(f"update_visuals error: {e}", exc_info=True)
         empty_fig = go.Figure().update_layout(template='plotly', title=f"Error: {e}")
         return empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, []
 
-# ─────────────────────────────────────────────────────────────────────
-# Main
-# ─────────────────────────────────────────────────────────────────────
+
 if __name__ == "__main__":
     port = int(os.getenv('PORT', 8050))
     app.run_server(debug=True, port=port)
