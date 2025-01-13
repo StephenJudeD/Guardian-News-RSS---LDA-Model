@@ -1,6 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
 import dash
 from dash import Dash, html, dcc, Input, Output, dash_table
 import dash_bootstrap_components as dbc
