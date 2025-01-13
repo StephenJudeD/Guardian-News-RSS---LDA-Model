@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+##!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
 import dash
@@ -68,10 +68,6 @@ guardian = GuardianFetcher(GUARDIAN_API_KEY)
 # ─────────────────────────────────────────────────────────────────────
 # Dash Setup
 # ─────────────────────────────────────────────────────────────────────
-# We use a custom color reminiscent of The Guardian’s blues for the navbar.
-# For the general layout, we favor white backgrounds and navy highlights.
-# You can tweak these further for a Guardian-like aesthetic.
-# ─────────────────────────────────────────────────────────────────────
 app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 server = app.server
 app.config.suppress_callback_exceptions = True
@@ -92,7 +88,6 @@ def process_articles(start_date, end_date):
         end_date_dt = datetime.strptime(end_date, '%Y-%m-%d').date()
         days_back = (datetime.now().date() - start_date_dt).days + 1
         
-        # Fetch
         df = guardian.fetch_articles(days_back=days_back, page_size=200)
         if df.empty:
             logger.warning("No articles fetched!")
@@ -147,13 +142,12 @@ def process_articles(start_date, end_date):
 # ─────────────────────────────────────────────────────────────────────
 def create_word_cloud(topic_words):
     """
-    Word cloud from LDA topic-word pairs.
-    Changed background to WHITE.
+    Word cloud from LDA topic-word pairs, white background.
     """
     try:
         freq_dict = dict(topic_words)
         wc = WordCloud(
-            background_color='white',  # changed to white
+            background_color='white',
             width=800,
             height=400,
             colormap='viridis'
@@ -167,9 +161,9 @@ def create_word_cloud(topic_words):
         logger.error(f"Error creating word cloud: {e}", exc_info=True)
         return go.Figure().update_layout(template='plotly')
 
-def create_tsne_visualization(df, corpus, lda_model):
+def create_tsne_visualization_3d(df, corpus, lda_model):
     """
-    t-SNE scatter for all docs. Each doc gets a "dominant_topic".
+    3D t-SNE scatter: n_components=3, scatter_3d.
     """
     try:
         if df is None or len(df) < 2:
@@ -197,43 +191,70 @@ def create_tsne_visualization(df, corpus, lda_model):
             perplex_val = max(2, len(doc_topics_array) - 1)
         
         tsne = TSNE(
-            n_components=2,
+            n_components=3,  # 3D
             random_state=42,
             perplexity=perplex_val,
             n_jobs=1
         )
-        embedded = tsne.fit_transform(doc_topics_array)
+        embedded = tsne.fit_transform(doc_topics_array)  # shape: (N, 3)
         
         scatter_df = pd.DataFrame({
             'x': embedded[:, 0],
             'y': embedded[:, 1],
+            'z': embedded[:, 2],
             'dominant_topic': [np.argmax(row) for row in doc_topics_array],
             'doc_index': df.index,
             'title': df['title']
         })
         
-        fig = px.scatter(
+        fig = px.scatter_3d(
             scatter_df,
-            x='x', y='y',
+            x='x', y='y', z='z',
             color='dominant_topic',
             hover_data=['title'],
-            title='t-SNE Topic Clustering',
-            custom_data=['doc_index']
+            title='3D t-SNE Topic Clustering'
         )
         fig.update_layout(template='plotly')
         return fig
     except Exception as e:
-        logger.error(f"Error creating t-SNE: {e}", exc_info=True)
+        logger.error(f"Error creating 3D t-SNE: {e}", exc_info=True)
         return go.Figure().update_layout(template='plotly', title=f"t-SNE Error: {e}")
 
-# ─────────────────────────────────────────────────────────────────────
-# Guardian-Like Theming
-# ─────────────────────────────────────────────────────────────────────
-# We'll adopt a mostly white background, navy bars, subtle gray text for a 
-# Guardian-style feeling. We override the default Navbar colors with "style={}"
-# because we want a darker navy color reminiscent of Guardian’s palette: #052962.
-# ─────────────────────────────────────────────────────────────────────
+def create_bubble_chart(df):
+    """
+    Create a bubble chart showing doc length vs. published date, colored by top topic.
+    We'll measure doc length simply as token count for each row.
+    For color, we'll guess the doc's 'dominant_topic' from the df if available.
+    
+    If we haven't stored that, we can do a quick re-check (like get_document_topics).
+    But for simplicity, let's do a naive approach:  we'll pick the first topic from the aggregated LDA model or store it earlier.
+    We'll do that in the main callback.
+    """
+    try:
+        if df is None or df.empty or 'doc_length' not in df.columns or 'dominant_topic' not in df.columns:
+            return go.Figure().update_layout(
+                template='plotly',
+                title='Bubble Chart Unavailable'
+            )
+        
+        fig = px.scatter(
+            df,
+            x='published',
+            y='doc_length',
+            size='doc_length',  # doc length as bubble size
+            color='dominant_topic',  # color by dominant topic
+            hover_data=['title'],
+            title='Document Length Bubble Chart'
+        )
+        fig.update_layout(template='plotly')
+        return fig
+    except Exception as e:
+        logger.error(f"Error creating bubble chart: {e}", exc_info=True)
+        return go.Figure().update_layout(template='plotly', title=f"Bubble Chart Error: {e}")
 
+# ─────────────────────────────────────────────────────────────────────
+# Theming (Guardian-like)
+# ─────────────────────────────────────────────────────────────────────
 NAVY_BLUE = "#052962"
 
 navbar = dbc.Navbar(
@@ -258,7 +279,6 @@ navbar = dbc.Navbar(
     className="mb-2 px-3"
 )
 
-# Top controls across the screen
 controls_row = dbc.Row(
     [
         dbc.Col(
@@ -297,7 +317,6 @@ controls_row = dbc.Row(
                     dbc.CardBody([
                         dcc.Dropdown(
                             id='topic-filter',
-                            # We'll label as Topic 0..4 to avoid off-by-1 confusion:
                             options=[{'label': f'Topic {i}', 'value': i} for i in range(5)],
                             multi=True,
                             placeholder="Filter by topics...",
@@ -310,22 +329,18 @@ controls_row = dbc.Row(
             ),
             md=4
         ),
-        dbc.Col(md=4)  # blank space or future expansion
+        dbc.Col(md=4)  # Blank space or future expansions
     ],
     className="my-2 px-2"
 )
 
 # ─────────────────────────────────────────────────────────────────────
-# Main Content Layout
-# ─────────────────────────────────────────────────────────────────────
-# We stack: 
-# 1) Topic Distributions (top) same height as t-SNE (top)
-# 2) Word Cloud (below t-SNE) same height
-# 3) Article Table
-#
-# We define "height: 600px" for both the bar chart (Topic Dist) and the TSNE
-# to ensure they match in vertical size. 
-# Then the word cloud also 600px high, below them.
+# Cards for the stacked layout
+# 1) Topic Word Dist (top)
+# 2) 3D t-SNE (middle)
+# 3) Word Cloud (below)
+# 4) Bubble Chart (below word cloud)
+# 5) Articles Table
 # ─────────────────────────────────────────────────────────────────────
 
 topic_dist_card = dbc.Card(
@@ -340,9 +355,9 @@ topic_dist_card = dbc.Card(
     style={"backgroundColor": "white"}
 )
 
-tsne_card = dbc.Card(
+tsne_3d_card = dbc.Card(
     [
-        dbc.CardHeader("t-SNE Topic Clustering", style={"backgroundColor": "white", "fontWeight": "bold"}),
+        dbc.CardHeader("3D t-SNE Topic Clustering", style={"backgroundColor": "white", "fontWeight": "bold"}),
         dbc.CardBody(
             dcc.Graph(id='tsne-plot', style={"height": "600px"}),
             style={"backgroundColor": "white"}
@@ -357,6 +372,18 @@ wordcloud_card = dbc.Card(
         dbc.CardHeader("Word Cloud", style={"backgroundColor": "white", "fontWeight": "bold"}),
         dbc.CardBody(
             dcc.Graph(id='word-cloud', style={"height": "600px"}),
+            style={"backgroundColor": "white"}
+        )
+    ],
+    className="mb-3",
+    style={"backgroundColor": "white"}
+)
+
+bubble_chart_card = dbc.Card(
+    [
+        dbc.CardHeader("Document Length Bubble Chart", style={"backgroundColor": "white", "fontWeight": "bold"}),
+        dbc.CardBody(
+            dcc.Graph(id='bubble-chart', style={"height": "600px"}),
             style={"backgroundColor": "white"}
         )
     ],
@@ -400,11 +427,10 @@ article_table_card = dbc.Card(
 app.layout = dbc.Container([
     navbar,
     controls_row,
-    dbc.Row([
-        dbc.Col(topic_dist_card, md=6),
-        dbc.Col(tsne_card, md=6),
-    ], className="g-3"),
+    dbc.Row([dbc.Col(topic_dist_card, md=12)], className="g-3"),
+    dbc.Row([dbc.Col(tsne_3d_card, md=12)], className="g-3"),
     dbc.Row([dbc.Col(wordcloud_card, md=12)], className="g-3"),
+    dbc.Row([dbc.Col(bubble_chart_card, md=12)], className="g-3"),
     dbc.Row([dbc.Col(article_table_card, md=12)], className="g-3"),
 ], fluid=True, style={"backgroundColor": "#f9f9f9"})
 
@@ -437,6 +463,7 @@ def update_date_range(selected_range):
         Output('topic-distribution', 'figure'),
         Output('word-cloud', 'figure'),
         Output('tsne-plot', 'figure'),
+        Output('bubble-chart', 'figure'),
         Output('article-details', 'data')
     ],
     [
@@ -448,31 +475,30 @@ def update_date_range(selected_range):
 def update_visuals(start_date, end_date, selected_topics):
     """
     Main callback:
-    1) Fetch/Process Articles
-    2) Topic Word Distribution
-    3) Word Cloud for first selected topic
-    4) TSNE
-    5) Table with selected topics
+    1) Topic Word Distributions
+    2) Word Cloud
+    3) 3D t-SNE
+    4) Bubble Chart
+    5) Article Table
     """
     try:
         logger.info(f"update_visuals: {start_date} to {end_date}, topics={selected_topics}")
+        
         df, texts, dictionary, corpus, lda_model = process_articles(start_date, end_date)
         if df is None or df.empty:
             empty_fig = go.Figure().update_layout(template='plotly', title="No Data")
-            return empty_fig, empty_fig, empty_fig, []
+            return empty_fig, empty_fig, empty_fig, empty_fig, []
         
         # If no topic selected, default to all topics [0..4]
         if not selected_topics:
             selected_topics = list(range(lda_model.num_topics))
         
         # 1) Topic Word Distributions
-        # We gather top words from each chosen topic and show 20 words.
         words_list = []
         for t_id in selected_topics:
             top_pairs = lda_model.show_topic(t_id, topn=20)
-            for (word, prob) in top_pairs:
-                words_list.append((word, prob, t_id))
-        
+            for (w, prob) in top_pairs:
+                words_list.append((w, prob, t_id))
         if not words_list:
             dist_fig = go.Figure().update_layout(template='plotly', title="No topics selected")
         else:
@@ -487,25 +513,43 @@ def update_visuals(start_date, end_date, selected_topics):
             )
             dist_fig.update_layout(template='plotly', yaxis={'categoryorder': 'total ascending'})
         
-        # 2) Word Cloud for the first selected topic
-        # (We interpret the "first" in the list for the cloud)
+        # 2) Word Cloud (take first selected topic)
         first_topic = selected_topics[0]
         wc_fig = create_word_cloud(lda_model.show_topic(first_topic, topn=30))
         
-        # 3) t-SNE scatter
-        tsne_fig = create_tsne_visualization(df, corpus, lda_model)
+        # 3) 3D t-SNE
+        tsne_fig = create_tsne_visualization_3d(df, corpus, lda_model)
         
-        # 4) Build table data
-        # For each doc, gather topic distribution, keep only selected topics
+        # 4) Bubble Chart
+        # We'll compute doc length for each doc, plus a "dominant_topic"
+        # that is the highest weighted topic for that doc. 
+        doc_lengths = []
+        doc_dominant_topics = []
+        for i in df.index:
+            doc_topics = lda_model.get_document_topics(corpus[i])
+            # doc length is just the sum of token counts
+            n_tokens = len(texts[i]) if texts[i] else 0
+            doc_lengths.append(n_tokens)
+            # pick dominant topic
+            if doc_topics:
+                best_t = max(doc_topics, key=lambda x: x[1])[0]
+            else:
+                best_t = -1
+            doc_dominant_topics.append(best_t)
+        
+        df["doc_length"] = doc_lengths
+        df["dominant_topic"] = doc_dominant_topics
+        
+        # We'll do a bubble chart with x=published, y=doc_length, size=doc_length, color=dominant_topic
+        bubble_fig = create_bubble_chart(df)
+        
+        # 5) Table data
         table_data = []
         for i in df.index:
             doc_topics = lda_model.get_document_topics(corpus[i])
-            # doc_topics is like [(topic_id, weight), ...]
-            # We collect those relevant to selected_topics
             these_topics = []
             for (tid, w) in sorted(doc_topics, key=lambda x: x[1], reverse=True):
                 if tid in selected_topics:
-                    # We'll label them as "Topic i" with no +1 offset
                     these_topics.append(f"Topic {tid}: {w:.3f}")
             table_data.append({
                 'title': df.at[i, 'title'],
@@ -514,12 +558,12 @@ def update_visuals(start_date, end_date, selected_topics):
                 'topics': '\n'.join(these_topics)
             })
         
-        return dist_fig, wc_fig, tsne_fig, table_data
+        return dist_fig, wc_fig, tsne_fig, bubble_fig, table_data
     
     except Exception as e:
         logger.error(f"update_visuals error: {e}", exc_info=True)
         empty_fig = go.Figure().update_layout(template='plotly', title=f"Error: {e}")
-        return empty_fig, empty_fig, empty_fig, []
+        return empty_fig, empty_fig, empty_fig, empty_fig, []
 
 # ─────────────────────────────────────────────────────────────────────
 # Main
