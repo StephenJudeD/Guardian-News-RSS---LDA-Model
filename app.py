@@ -1,6 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
 import dash
 from dash import Dash, html, dcc, Input, Output, dash_table
 import dash_bootstrap_components as dbc
@@ -43,7 +40,7 @@ CUSTOM_STOP_WORDS = {
     'according', 'told', 'reuters', 'guardian', 'monday', 'tuesday', 'wednesday',
     'thursday', 'friday', 'saturday', 'sunday', 'week', 'month', 'us', 'people',
     'government', 'could', 'will', 'may', 'trump', 'published', 'article',
-    'editor', 'nt', 'dont', 'doesnt', 'cant', 'couldnt', 'shouldnt'
+    'editor', 'nt', 'dont', 'doesnt', 'cant', 'couldnt', 'shouldnt', 'one', 'two', 'three', 'four', 'five'
 }
 
 # ─────────────────────────────────────────────────────────────────────
