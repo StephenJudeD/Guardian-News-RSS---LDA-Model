@@ -192,4 +192,4 @@ Pull requests and issues are welcome! If you have ideas, bug reports, or improve
 License
 -------
 
-MIT License (Assuming MIT, or edit accordingly)
+MIT License, or something like that!
