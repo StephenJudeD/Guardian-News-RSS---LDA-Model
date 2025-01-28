@@ -329,21 +329,28 @@ explainer_card = dbc.Card(
         dbc.CardBody(
             [
                 html.P(
-                    """
-                    This dashboard fetches articles from the Guardian’s RSS, processes them with
-                    Natural Language Processing (NLP), and then applies techniques like LDA for topic modeling,
-                    bigrams/trigrams detection for multi-word phrases, and t-SNE for visualizing clusters in 3D.
-                    Explore the date range and topic filters to see how news stories shift over time! Code & Readme available @ https://github.com/StephenJudeD/Guardian-News-RSS---LDA-Model/tree/main
-                    """,
-                    className="mb-0"
+                    [
+                        "This dashboard fetches articles from the Guardian’s RSS, processes them with "
+                        "Natural Language Processing (NLP), and then applies techniques like LDA for topic modeling, "
+                        "bigrams/trigrams detection for multi-word phrases, and t-SNE for visualizing clusters in 3D. "
+                        "Explore the date range and topic filters to see how news stories shift over time! ",
+                        html.A(
+                            "Code & Readme available @ GitHub",
+                            href="https://github.com/StephenJudeD/Guardian-News-RSS---LDA-Model/tree/main",
+                            target="_blank",
+                            style={"color": "blue", "textDecoration": "underline"},
+                        ),
+                    ],
+                    className="mb-0",
                 )
             ],
-            style={"backgroundColor": "white"}
-        )
+            style={"backgroundColor": "white"},
+        ),
     ],
     className="mb-3",
-    style={"backgroundColor": "white"}
+    style={"backgroundColor": "white"},
 )
+
 
 # Filters
 controls_row = dbc.Row(
