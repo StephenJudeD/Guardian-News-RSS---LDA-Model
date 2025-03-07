@@ -56,12 +56,14 @@ PLOTLY_THEME = {
         "plot_bgcolor": DARK_GRAPHITE,
         "font": {"family": "Arial", "color": ELECTRIC_BLUE},
         "xaxis": {
-            "gridcolor": f"{ELECTRIC_BLUE}33",
+            # Changed from f"{ELECTRIC_BLUE}33" to rgba format
+            "gridcolor": "rgba(0, 243, 255, 0.2)",
             "linecolor": ELECTRIC_BLUE,
             "title_font": {"size": 14, "color": NEON_PINK}
         },
         "yaxis": {
-            "gridcolor": f"{ELECTRIC_BLUE}33",
+            # Changed from f"{ELECTRIC_BLUE}33" to rgba format
+            "gridcolor": "rgba(0, 243, 255, 0.2)",
             "linecolor": ELECTRIC_BLUE,
             "title_font": {"size": 14, "color": NEON_PINK}
         },
