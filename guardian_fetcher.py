@@ -10,8 +10,8 @@ class GuardianFetcher:
         self.base_url = "https://content.guardianapis.com/search"
     
     @lru_cache(maxsize=32)
-    def _fetch_page(self, page, start_date_str, end_date_str, page_size, section=None):
-        """Cached method for fetching individual pages with an optional section filter."""
+    def _fetch_page(self, page, start_date_str, end_date_str, page_size):
+        """Cached method for fetching individual pages"""
         params = {
             'api-key': self.api_key,
             'show-fields': 'bodyText,headline,byline,wordcount,thumbnail',
@@ -21,23 +21,10 @@ class GuardianFetcher:
             'to-date': end_date_str,
             'page': page
         }
-        if section:
-            params['section'] = section
         response = requests.get(self.base_url, params=params)
         return response.json()['response']
 
-    def fetch_articles(self, days_back=14, page_size=50, section="World news"):
-        """
-        Fetch articles from The Guardian filtered by a specific section.
-        
-        Parameters:
-          days_back: Number of days to look back.
-          page_size: Number of articles per page.
-          section: Section filter to limit the articles (default: "World news").
-        
-        Returns:
-          A pandas DataFrame containing the fetched articles.
-        """
+    def fetch_articles(self, days_back=7, page_size=50):
         end_date = datetime.now()
         start_date = end_date - timedelta(days=days_back)
         start_date_str = start_date.strftime('%Y-%m-%d')
@@ -47,10 +34,9 @@ class GuardianFetcher:
         page = 1
         total_pages = 1
 
-        # Fetch at most 2 pages of results
         while page <= total_pages and page <= 2:
             try:
-                data = self._fetch_page(page, start_date_str, end_date_str, page_size, section)
+                data = self._fetch_page(page, start_date_str, end_date_str, page_size)
                 
                 if page == 1:
                     total_pages = min(data['pages'], 2)
@@ -77,8 +63,7 @@ class GuardianFetcher:
                 break
 
         df = pd.DataFrame(all_articles)
-        if not df.empty:
-            df['days_ago'] = (datetime.now() - df['published']).dt.days
+        df['days_ago'] = (datetime.now() - df['published']).dt.days
         
         print(f"📰 Fetched {len(df)} articles")
         return df
