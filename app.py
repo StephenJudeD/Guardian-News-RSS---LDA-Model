@@ -12,7 +12,6 @@ from gensim.models.phrases import Phrases, Phraser
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
 from sklearn.manifold import TSNE
-from wordcloud import WordCloud
 import nltk
 import os
 from dotenv import load_dotenv
@@ -42,38 +41,11 @@ DARK_GRAPHITE = "#1a1a1a"
 ELECTRIC_BLUE = "#00F3FF"
 NEON_PINK = "#FF10F0"
 TOPIC_COLORS = {
-    0: "#2196F3",  # Vivid Blue
-    1: "#FF5252",  # Vivid Red
-    2: "#9C27B0",  # Vivid Purple
-    3: "#4CAF50",  # Vivid Green
-    4: "#FF9800"   # Vivid Orange
-}
-
-PLOTLY_THEME = {
-    "layout": {
-        "template": "plotly_dark",
-        "paper_bgcolor": DARK_GRAPHITE,
-        "plot_bgcolor": DARK_GRAPHITE,
-        "font": {"family": "Arial", "color": ELECTRIC_BLUE},
-        "xaxis": {
-            "gridcolor": "rgba(0, 243, 255, 0.2)",
-            "linecolor": ELECTRIC_BLUE,
-            "title_font": {"size": 14, "color": NEON_PINK}
-        },
-        "yaxis": {
-            "gridcolor": "rgba(0, 243, 255, 0.2)",
-            "linecolor": ELECTRIC_BLUE,
-            "title_font": {"size": 14, "color": NEON_PINK}
-        },
-        "hoverlabel": {
-            "bgcolor": DARK_GRAPHITE,
-            "font_size": 12,
-            "font_color": ELECTRIC_BLUE
-        },
-        "colorway": list(TOPIC_COLORS.values()),
-        "margin": {"l": 50, "r": 50, "t": 80, "b": 50},
-        "transition": {"duration": 300}
-    }
+    0: "#2196F3",  # Blue
+    1: "#FF5252",  # Red
+    2: "#9C27B0",  # Purple
+    3: "#4CAF50",  # Green
+    4: "#FF9800"   # Orange
 }
 
 # ===========================================
@@ -91,25 +63,25 @@ stop_words = set(stopwords.words('english')).union({
 })
 
 # ===========================================
-# DATA PROCESSING
+# ENHANCED DATA PROCESSING
 # ===========================================
 @lru_cache(maxsize=4)
 def process_articles(days_back=7):
-    """Process articles with caching and phrase detection"""
+    """Process articles with phrase detection and quality filtering"""
     try:
         logger.info(f"Processing articles from last {days_back} days")
         df = guardian.fetch_articles(days_back=days_back, page_size=100)
         if df.empty:
             return None, None, None, None, None, None
 
-        # Enhanced text processing with phrase detection
+        # Advanced text processing pipeline
         tokenized_texts = []
         for content in df['content']:
             words = word_tokenize(str(content).lower())
             filtered = [w for w in words if w.isalnum() and w not in stop_words]
             tokenized_texts.append(filtered)
 
-        # Phrase detection with proper combining
+        # Phrase detection with quality filtering
         bigram = Phrases(tokenized_texts, min_count=5, threshold=10)
         trigram = Phrases(bigram[tokenized_texts], threshold=10)
         texts = [
@@ -131,18 +103,18 @@ def process_articles(days_back=7):
             alpha='auto'
         )
 
-        # Improved topic naming with OpenAI
+        # Improved OpenAI topic naming
         topic_names = {}
         for topic_id in range(lda_model.num_topics):
-            top_words = [word for word, _ in lda_model.show_topic(topic_id, topn=50)]
+            top_words = [word for word, _ in lda_model.show_topic(topic_id, topn=15)]
             try:
                 response = openai_client.chat.completions.create(
                     model="gpt-3.5-turbo",
                     messages=[{
                         "role": "user",
-                        "content": f"""Generate a concise 2-3 word news topic modelling name  based on these key phrases: {', '.join(top_words[:10])}.
-                        Examples of good names: 'Climate Policy', 'Tech Innovation', 'Foreign Relations', 'Political Affairs', 'Sport', 'Film & Culture', 
-                        Bad examples: 'Various Topics', 'Mixed Issues', 'General News', using quatation marks
+                        "content": f"""Generate a concise 2-3 word news topic name based on these key phrases: {', '.join(top_words)}.
+                        Examples of good names: 'Climate Policy', 'Tech Innovation', 'Foreign Relations'
+                        Bad examples: 'Various Topics', 'Mixed Issues', 'General News'
                         Topic Name:"""
                     }]
                 )
@@ -161,7 +133,7 @@ def process_articles(days_back=7):
 # VISUALIZATION COMPONENTS
 # ===========================================
 def create_topic_nexus(lda_model, topic_names):
-    """Full-width radar chart with phrases"""
+    """Full-width radar chart with 15 phrases per topic"""
     fig = go.Figure()
     for topic_id in range(lda_model.num_topics):
         words, probs = zip(*lda_model.show_topic(topic_id, topn=15))
@@ -173,19 +145,11 @@ def create_topic_nexus(lda_model, topic_names):
             line_color=TOPIC_COLORS[topic_id],
             opacity=0.8
         ))
+    
     fig.update_layout(
         polar=dict(
-            radialaxis=dict(
-                visible=True, 
-                showline=False, 
-                gridcolor='rgba(0, 243, 255, 0.2)',
-                range=[0, max(probs)*1.1]
-            ),
-            angularaxis=dict(
-                linecolor=ELECTRIC_BLUE, 
-                gridcolor='rgba(0, 243, 255, 0.2)',
-                rotation=45
-            )
+            radialaxis=dict(visible=True, gridcolor='rgba(0, 243, 255, 0.2)'),
+            angularaxis=dict(gridcolor='rgba(0, 243, 255, 0.2)')
         ),
         title={
             'text': "<b>TOPIC WORD RADAR</b>",
@@ -194,12 +158,14 @@ def create_topic_nexus(lda_model, topic_names):
             'xanchor': 'center'
         },
         height=600,
-        margin={"t": 100}
+        margin={"t": 100},
+        paper_bgcolor=DARK_GRAPHITE,
+        plot_bgcolor=DARK_GRAPHITE
     )
     return fig
 
-def create_tsne_3d_visualization(df, lda_model, corpus, topic_names):
-    """Interactive 3D topic clustering"""
+def create_3d_tsne(df, lda_model, corpus, topic_names):
+    """Interactive 3D cluster visualization"""
     try:
         topic_weights = np.array([[weight for (_, weight) in lda_model[doc]] for doc in corpus])
         
@@ -231,7 +197,8 @@ def create_tsne_3d_visualization(df, lda_model, corpus, topic_names):
                 yaxis=dict(backgroundcolor=DARK_GRAPHITE),
                 zaxis=dict(backgroundcolor=DARK_GRAPHITE)
             ),
-            margin=dict(l=0, r=0, b=0, t=40)
+            margin=dict(l=0, r=0, b=0, t=40),
+            paper_bgcolor=DARK_GRAPHITE
         )
         return fig
     except Exception as e:
@@ -239,16 +206,20 @@ def create_tsne_3d_visualization(df, lda_model, corpus, topic_names):
         return go.Figure()
 
 # ===========================================
-# APP LAYOUT
+# OPTIMIZED APP LAYOUT
 # ===========================================
 app.layout = dbc.Container([
-    # Header
     dbc.Navbar(
         dbc.Container([
-            html.Img(src="", height="40px", className="me-2"),
             dbc.NavbarBrand(
-                "GUARDIAN TOPIC EXPLORER",
-                style={"fontSize": "2rem", "letterSpacing": "2px"}
+                "NEWS TOPIC EXPLORER",
+                style={
+                    "fontSize": "2rem",
+                    "letterSpacing": "2px",
+                    "color": NEON_PINK,
+                    "width": "100%",
+                    "textAlign": "center"
+                }
             )
         ]),
         color=DARK_GRAPHITE,
@@ -256,7 +227,6 @@ app.layout = dbc.Container([
         className="mb-4"
     ),
     
-    # Controls
     dbc.Row([
         dbc.Col([
             dbc.Card([
@@ -270,7 +240,8 @@ app.layout = dbc.Container([
                             {'label': '7 Days', 'value': 7}
                         ],
                         value=7,
-                        inline=True
+                        inline=True,
+                        style={'justifyContent': 'center'}
                     )
                 ])
             ], className="shadow-lg")
@@ -284,14 +255,13 @@ app.layout = dbc.Container([
                         id='topic-filter',
                         multi=True,
                         placeholder="Select topics...",
-                        style={'minWidth': '200px'}
+                        style={'minWidth': '250px'}
                     )
                 ])
             ], className="shadow-lg")
         ], md=6)
     ], className="g-4 mb-4"),
     
-    # Visualizations
     dbc.Row([
         dbc.Col(dcc.Graph(id='topic-nexus'), width=12)
     ], className="g-4 mb-4"),
@@ -300,7 +270,6 @@ app.layout = dbc.Container([
         dbc.Col(dcc.Graph(id='tsne-3d-plot'), width=12)
     ], className="g-4 mb-4"),
     
-    # Data Table
     dbc.Row([
         dbc.Col([
             dbc.Card([
@@ -323,7 +292,7 @@ app.layout = dbc.Container([
                     )
                 ])
             ], className="shadow-lg")
-        ])
+        ], width=12)
     ])
 ], fluid=True, style={"backgroundColor": DARK_GRAPHITE})
 
@@ -338,29 +307,27 @@ app.layout = dbc.Container([
     [Input('time-range', 'value')],
     [State('topic-filter', 'value')]
 )
-def update_all_visuals(days_back, selected_topics):
+def update_visuals(days_back, selected_topics):
     df, texts, dictionary, corpus, lda_model, topic_names = process_articles(days_back)
     if df is None:
         return go.Figure(), go.Figure(), [], []
     
     # Generate visualizations
     nexus_fig = create_topic_nexus(lda_model, topic_names)
-    tsne_3d_fig = create_tsne_3d_visualization(df, lda_model, corpus, topic_names)
+    tsne_fig = create_3d_tsne(df, lda_model, corpus, topic_names)
     
     # Prepare table data
-    df['top_words'] = df.apply(lambda row: ', '.join(
+    df['top_phrases'] = df.apply(lambda row: ', '.join(
         [word for word, _ in lda_model.show_topic(
             np.argmax([prob for _, prob in lda_model[corpus[row.name]]]), 
             topn=5
         )]
     ), axis=1)
     
-    table_data = df[['title', 'published', 'section', 'top_words']].to_dict('records')
-    
-    # Update filter options
+    table_data = df[['title', 'published', 'section', 'top_phrases']].to_dict('records')
     topic_options = [{'label': name, 'value': tid} for tid, name in topic_names.items()]
     
-    return nexus_fig, tsne_3d_fig, table_data, topic_options
+    return nexus_fig, tsne_fig, table_data, topic_options
 
 if __name__ == '__main__':
-    app.run_server(debug=True, port=int(os.getenv('PORT', 8050)))
+    app.run_server(debug=False, port=int(os.getenv('PORT', 8050)))
