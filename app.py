@@ -56,13 +56,11 @@ PLOTLY_THEME = {
         "plot_bgcolor": DARK_GRAPHITE,
         "font": {"family": "Arial", "color": ELECTRIC_BLUE},
         "xaxis": {
-            # Changed from f"{ELECTRIC_BLUE}33" to rgba format
             "gridcolor": "rgba(0, 243, 255, 0.2)",
             "linecolor": ELECTRIC_BLUE,
             "title_font": {"size": 14, "color": NEON_PINK}
         },
         "yaxis": {
-            # Changed from f"{ELECTRIC_BLUE}33" to rgba format
             "gridcolor": "rgba(0, 243, 255, 0.2)",
             "linecolor": ELECTRIC_BLUE,
             "title_font": {"size": 14, "color": NEON_PINK}
@@ -97,24 +95,28 @@ stop_words = set(stopwords.words('english')).union({
 # ===========================================
 @lru_cache(maxsize=4)
 def process_articles(days_back=7):
-    """Process articles with caching for performance"""
+    """Process articles with caching and phrase detection"""
     try:
         logger.info(f"Processing articles from last {days_back} days")
         df = guardian.fetch_articles(days_back=days_back, page_size=100)
         if df.empty:
             return None, None, None, None, None, None
 
-        # Text processing pipeline
+        # Enhanced text processing with phrase detection
         tokenized_texts = []
         for content in df['content']:
             words = word_tokenize(str(content).lower())
             filtered = [w for w in words if w.isalnum() and w not in stop_words]
             tokenized_texts.append(filtered)
 
-        # Phrase detection
-        bigram = Phraser(Phrases(tokenized_texts, min_count=5, threshold=10))
-        trigram = Phraser(Phrases(bigram[tokenized_texts], threshold=10))
-        texts = [trigram[bigram[doc]] for doc in tokenized_texts]
+        # Phrase detection with proper combining
+        bigram = Phrases(tokenized_texts, min_count=5, threshold=10)
+        trigram = Phrases(bigram[tokenized_texts], threshold=10)
+        texts = [
+            ['_'.join(phrase) for phrase in trigram[bigram[doc]] 
+             if len(phrase) > 3 and not any(c.isdigit() for c in phrase)]
+            for doc in tokenized_texts
+        ]
 
         # LDA Model training
         dictionary = corpora.Dictionary(texts)
@@ -125,19 +127,23 @@ def process_articles(days_back=7):
             id2word=dictionary,
             passes=4,
             random_state=42,
-            chunksize=100
+            chunksize=100,
+            alpha='auto'
         )
 
-        # Generate topic names
+        # Improved topic naming with OpenAI
         topic_names = {}
         for topic_id in range(lda_model.num_topics):
-            top_words = [word for word, _ in lda_model.show_topic(topic_id, topn=5)]
+            top_words = [word for word, _ in lda_model.show_topic(topic_id, topn=50)]
             try:
                 response = openai_client.chat.completions.create(
                     model="gpt-3.5-turbo",
                     messages=[{
                         "role": "user",
-                        "content": f"Generate a concise 2-3 word name for a news topic containing these terms: {', '.join(top_words)}"
+                        "content": f"""Generate a concise 2-3 word news topic modelling name  based on these key phrases: {', '.join(top_words[:10])}.
+                        Examples of good names: 'Climate Policy', 'Tech Innovation', 'Foreign Relations', 'Political Affairs', 'Sport', 'Film & Culture', 
+                        Bad examples: 'Various Topics', 'Mixed Issues', 'General News', using quatation marks
+                        Topic Name:"""
                     }]
                 )
                 topic_names[topic_id] = response.choices[0].message.content.strip()
@@ -155,10 +161,10 @@ def process_articles(days_back=7):
 # VISUALIZATION COMPONENTS
 # ===========================================
 def create_topic_nexus(lda_model, topic_names):
-    """Interactive radar chart of topic word distributions"""
+    """Full-width radar chart with phrases"""
     fig = go.Figure()
     for topic_id in range(lda_model.num_topics):
-        words, probs = zip(*lda_model.show_topic(topic_id, topn=5))
+        words, probs = zip(*lda_model.show_topic(topic_id, topn=15))
         fig.add_trace(go.Scatterpolar(
             r=probs + probs[:1],
             theta=words + words[:1],
@@ -168,62 +174,68 @@ def create_topic_nexus(lda_model, topic_names):
             opacity=0.8
         ))
     fig.update_layout(
-        **PLOTLY_THEME["layout"],
+        polar=dict(
+            radialaxis=dict(
+                visible=True, 
+                showline=False, 
+                gridcolor='rgba(0, 243, 255, 0.2)',
+                range=[0, max(probs)*1.1]
+            ),
+            angularaxis=dict(
+                linecolor=ELECTRIC_BLUE, 
+                gridcolor='rgba(0, 243, 255, 0.2)',
+                rotation=45
+            )
+        ),
         title={
             'text': "<b>TOPIC WORD RADAR</b>",
-            'font': {'size': 24, 'color': NEON_PINK}
+            'font': {'size': 24, 'color': NEON_PINK},
+            'x': 0.5,
+            'xanchor': 'center'
         },
-        polar=dict(
-            radialaxis=dict(visible=True, color=ELECTRIC_BLUE),
-            angularaxis=dict(color=ELECTRIC_BLUE)
-        ),
-        height=500
+        height=600,
+        margin={"t": 100}
     )
     return fig
 
-def create_tsne_visualization(df, lda_model, corpus, topic_names):
-    """Interactive 3D topic clustering visualization"""
+def create_tsne_3d_visualization(df, lda_model, corpus, topic_names):
+    """Interactive 3D topic clustering"""
     try:
-        topic_weights = np.array([
-            [weight for (_, weight) in lda_model[doc]] for doc in corpus
-        ])
+        topic_weights = np.array([[weight for (_, weight) in lda_model[doc]] for doc in corpus])
         
-        tsne = TSNE(n_components=2, perplexity=min(30, len(df)-1), random_state=42)
+        tsne = TSNE(n_components=3, perplexity=min(30, len(df)-1), random_state=42)
         embeddings = tsne.fit_transform(topic_weights)
         
         df_vis = pd.DataFrame({
             'x': embeddings[:, 0],
             'y': embeddings[:, 1],
+            'z': embeddings[:, 2],
             'topic': [np.argmax(row) for row in topic_weights],
             'title': df['title'],
             'date': df['published'].dt.strftime('%Y-%m-%d')
         })
-        df_vis['topic_name'] = df_vis['topic'].map(topic_names)
         
-        fig = px.scatter(
+        fig = px.scatter_3d(
             df_vis,
-            x='x',
-            y='y',
-            color='topic_name',
+            x='x', y='y', z='z',
+            color='topic',
             color_discrete_map=TOPIC_COLORS,
             hover_data=['title', 'date'],
-            title="<b>ARTICLE CLUSTER MAP</b>"
+            title="<b>3D ARTICLE CLUSTER MAP</b>"
         )
         
         fig.update_layout(
-            **PLOTLY_THEME["layout"],
-            title={'font': {'size': 24, 'color': NEON_PINK}},
-            height=600
+            title={'x': 0.5, 'font': {'size': 24, 'color': NEON_PINK}},
+            scene=dict(
+                xaxis=dict(backgroundcolor=DARK_GRAPHITE),
+                yaxis=dict(backgroundcolor=DARK_GRAPHITE),
+                zaxis=dict(backgroundcolor=DARK_GRAPHITE)
+            ),
+            margin=dict(l=0, r=0, b=0, t=40)
         )
-        
-        fig.update_traces(
-            marker=dict(size=12, line=dict(width=1, color=ELECTRIC_BLUE)),
-            selector=dict(mode='markers')
-        )
-        
         return fig
     except Exception as e:
-        logger.error(f"TSNE error: {e}")
+        logger.error(f"3D TSNE error: {e}")
         return go.Figure()
 
 # ===========================================
@@ -262,7 +274,7 @@ app.layout = dbc.Container([
                     )
                 ])
             ], className="shadow-lg")
-        ], md=4),
+        ], md=6),
         
         dbc.Col([
             dbc.Card([
@@ -271,17 +283,21 @@ app.layout = dbc.Container([
                     dcc.Dropdown(
                         id='topic-filter',
                         multi=True,
-                        placeholder="Select topics..."
+                        placeholder="Select topics...",
+                        style={'minWidth': '200px'}
                     )
                 ])
             ], className="shadow-lg")
-        ], md=8)
+        ], md=6)
     ], className="g-4 mb-4"),
     
     # Visualizations
     dbc.Row([
-        dbc.Col(dcc.Graph(id='topic-nexus'), md=6),
-        dbc.Col(dcc.Graph(id='tsne-plot'), md=6)
+        dbc.Col(dcc.Graph(id='topic-nexus'), width=12)
+    ], className="g-4 mb-4"),
+    
+    dbc.Row([
+        dbc.Col(dcc.Graph(id='tsne-3d-plot'), width=12)
     ], className="g-4 mb-4"),
     
     # Data Table
@@ -316,7 +332,7 @@ app.layout = dbc.Container([
 # ===========================================
 @app.callback(
     [Output('topic-nexus', 'figure'),
-     Output('tsne-plot', 'figure'),
+     Output('tsne-3d-plot', 'figure'),
      Output('article-table', 'data'),
      Output('topic-filter', 'options')],
     [Input('time-range', 'value')],
@@ -327,15 +343,15 @@ def update_all_visuals(days_back, selected_topics):
     if df is None:
         return go.Figure(), go.Figure(), [], []
     
-    # Generate visualization figures
+    # Generate visualizations
     nexus_fig = create_topic_nexus(lda_model, topic_names)
-    tsne_fig = create_tsne_visualization(df, lda_model, corpus, topic_names)
+    tsne_3d_fig = create_tsne_3d_visualization(df, lda_model, corpus, topic_names)
     
     # Prepare table data
     df['top_words'] = df.apply(lambda row: ', '.join(
         [word for word, _ in lda_model.show_topic(
             np.argmax([prob for _, prob in lda_model[corpus[row.name]]]), 
-            topn=3
+            topn=5
         )]
     ), axis=1)
     
@@ -344,7 +360,7 @@ def update_all_visuals(days_back, selected_topics):
     # Update filter options
     topic_options = [{'label': name, 'value': tid} for tid, name in topic_names.items()]
     
-    return nexus_fig, tsne_fig, table_data, topic_options
+    return nexus_fig, tsne_3d_fig, table_data, topic_options
 
 if __name__ == '__main__':
     app.run_server(debug=True, port=int(os.getenv('PORT', 8050)))
