@@ -3,23 +3,21 @@ from dash import Dash, html, dcc, Input, Output, dash_table
 import dash_bootstrap_components as dbc
 import plotly.express as px
 import plotly.graph_objects as go
-from guardian_fetcher import GuardianFetcher
 from datetime import datetime, timedelta
-import pandas as pd
-import numpy as np
-
-from gensim import corpora, models
-from gensim.models.phrases import Phrases, Phraser
-
-from nltk.tokenize import word_tokenize
-from nltk.corpus import stopwords
-from sklearn.manifold import TSNE
-from wordcloud import WordCloud
-import nltk
 import os
 from dotenv import load_dotenv
-from functools import lru_cache
 import logging
+import pandas as pd
+import nltk
+from nltk.tokenize import word_tokenize
+from nltk.corpus import stopwords
+from gensim import corpora, models
+from gensim.models.phrases import Phrases, Phraser
+from gensim.models import CoherenceModel
+from wordcloud import WordCloud
+from sklearn.manifold import TSNE
+import numpy as np
+import requests  # Import the requests library
 
 # ─────────────────────────────────────────────────────────────────────
 # Logging setup
@@ -32,6 +30,27 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────────────────────────────
+# Environment variables
+# ─────────────────────────────────────────────────────────────────────
+load_dotenv()
+GUARDIAN_API_KEY = os.getenv('GUARDIAN_API_KEY')
+if not GUARDIAN_API_KEY:
+    logger.error("⚠️ No GUARDIAN_API_KEY found in environment!")
+    # Display a user-friendly error message in the app
+    api_key_error_message = "⚠️ No GUARDIAN_API_KEY found in environment!  Please set the GUARDIAN_API_KEY environment variable."
+else:
+    api_key_error_message = None
+
+# ─────────────────────────────────────────────────────────────────────
+# NLTK Downloads
+# ─────────────────────────────────────────────────────────────────────
+try:
+    nltk.download('punkt', quiet=True)
+    nltk.download('stopwords', quiet=True)
+except Exception as e:
+    logger.error(f"Error downloading NLTK data: {e}")
+
+# ─────────────────────────────────────────────────────────────────────
 # Expanded Stop Words
 # ─────────────────────────────────────────────────────────────────────
 CUSTOM_STOP_WORDS = {
@@ -42,40 +61,82 @@ CUSTOM_STOP_WORDS = {
     'nt', 'dont', 'doesnt', 'cant', 'couldnt', 'shouldnt'
 }
 
-# ─────────────────────────────────────────────────────────────────────
-# Environment variables & NLTK
-# ─────────────────────────────────────────────────────────────────────
-load_dotenv()
-GUARDIAN_API_KEY = os.getenv('GUARDIAN_API_KEY')
-if not GUARDIAN_API_KEY:
-    logger.error("⚠️ No GUARDIAN_API_KEY found in environment!")
-    raise ValueError("No GUARDIAN_API_KEY found in environment!")
-
-nltk.download('punkt')
-nltk.download('stopwords')
 stop_words = set(stopwords.words('english')).union(CUSTOM_STOP_WORDS)
 
 # ─────────────────────────────────────────────────────────────────────
-# GuardianFetcher
+# GuardianFetcher (Using API Key)
 # ─────────────────────────────────────────────────────────────────────
-guardian = GuardianFetcher(GUARDIAN_API_KEY)
+class GuardianFetcher:
+    def __init__(self, api_key):
+        self.api_key = api_key
+        self.base_url = "https://content.guardianapis.com/search"
+
+    def fetch_articles(self, days_back=7, page_size=200):
+        """Fetches articles from the Guardian API."""
+        all_articles = []
+        current_date = datetime.now().date()
+        end_date = current_date
+        begin_date = current_date - timedelta(days=days_back)
+
+        page = 1
+        total_pages = 1  # Initialize to 1 to enter the loop
+
+        while page <= total_pages:
+            params = {
+                'api-key': self.api_key,
+                'from-date': begin_date.strftime('%Y-%m-%d'),
+                'to-date': end_date.strftime('%Y-%m-%d'),
+                'page': page,
+                'page-size': page_size,
+                'show-fields': 'headline,bodyText,firstPublicationDate'
+            }
+
+            try:
+                response = requests.get(self.base_url, params=params)
+                response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
+                data = response.json()
+
+                if 'response' in data and 'results' in data['response']:
+                    results = data['response']['results']
+                    total_pages = data['response']['pages']  # Update total_pages
+                    for item in results:
+                        article = {
+                            'title': item['fields']['headline'] if 'headline' in item['fields'] else 'No Headline',
+                            'content': item['fields']['bodyText'] if 'bodyText' in item['fields'] else 'No Content',
+                            'published': pd.to_datetime(item['fields']['firstPublicationDate']) if 'firstPublicationDate' in item['fields'] else None
+                        }
+                        all_articles.append(article)
+                    logger.info(f"Fetched page {page}/{total_pages} from Guardian API")
+                    page += 1  # Increment page number
+                else:
+                    logger.warning("No 'response' or 'results' found in API response.")
+                    break  # Exit loop if no results
+
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Request failed: {e}")
+                break  # Exit loop on request error
+            except Exception as e:
+                logger.error(f"Error processing API response: {e}")
+                break  # Exit loop on processing error
+
+        df = pd.DataFrame(all_articles)
+        return df
 
 # ─────────────────────────────────────────────────────────────────────
-# Dash Setup
+# Data Processing Function
 # ─────────────────────────────────────────────────────────────────────
-app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
-server = app.server
-app.config.suppress_callback_exceptions = True
-
-# ─────────────────────────────────────────────────────────────────────
-# Data Processing
-# ─────────────────────────────────────────────────────────────────────
-@lru_cache(maxsize=64)
-def process_articles(start_date, end_date):
+def process_articles(start_date, end_date, num_topics=5, lda_passes=10):
     """
-    Fetch Guardian articles in the given date range,
-    then tokenize, detect bigrams/trigrams, and train LDA on the entire set.
-    Return (df, texts, dictionary, corpus, lda_model).
+    Fetches, preprocesses, and trains an LDA model on Guardian articles.
+
+    Args:
+        start_date (str): Start date in YYYY-MM-DD format.
+        end_date (str): End date in YYYY-MM-DD format.
+        num_topics (int): Number of topics for LDA.
+        lda_passes (int): Number of passes for LDA training.
+
+    Returns:
+        tuple: (df, texts, dictionary, corpus, lda_model, coherence_score) or (None,)*6 on error.
     """
     try:
         logger.info(f"Fetching articles from {start_date} to {end_date}")
@@ -84,10 +145,12 @@ def process_articles(start_date, end_date):
         end_date_dt = datetime.strptime(end_date, '%Y-%m-%d').date()
         days_back = (datetime.now().date() - start_date_dt).days + 1
 
+        guardian = GuardianFetcher(GUARDIAN_API_KEY)  # Initialize here
         df = guardian.fetch_articles(days_back=days_back, page_size=200)
+
         if df.empty:
             logger.warning("No articles fetched!")
-            return None, None, None, None, None
+            return None, None, None, None, None, None
 
         df = df[
             (df['published'].dt.date >= start_date_dt) &
@@ -96,7 +159,7 @@ def process_articles(start_date, end_date):
         logger.info(f"Filtered to {len(df)} articles in date range")
         if len(df) < 5:
             logger.warning("Not enough articles for LDA.")
-            return None, None, None, None, None
+            return None, None, None, None, None, None
 
         df.reset_index(drop=True, inplace=True)
 
@@ -133,22 +196,49 @@ def process_articles(start_date, end_date):
         # Train LDA
         lda_model = models.LdaModel(
             corpus=corpus,
-            num_topics=5,
+            num_topics=num_topics,
             id2word=dictionary,
-            passes=10,
+            passes=lda_passes,
             random_state=42,
             chunksize=100
         )
 
+        # Calculate Coherence
+        coherence_score = calculate_coherence(lda_model, texts, dictionary)
+
         logger.info(f"Processed {len(df)} articles successfully")
-        return df, texts, dictionary, corpus, lda_model
+        return df, texts, dictionary, corpus, lda_model, coherence_score
 
     except Exception as e:
         logger.error(f"Error in process_articles: {e}", exc_info=True)
-        return None, None, None, None, None
+        return None, None, None, None, None, None
 
 # ─────────────────────────────────────────────────────────────────────
-# Visualization Helpers
+# Coherence Calculation Function
+# ─────────────────────────────────────────────────────────────────────
+def calculate_coherence(lda_model, texts, dictionary):
+    """
+    Calculates the coherence score of an LDA model.
+
+    Args:
+        lda_model: Trained LDA model.
+        texts: List of tokenized texts.
+        dictionary: Gensim dictionary.
+
+    Returns:
+        float: Coherence score.
+    """
+    try:
+        coherence_model = CoherenceModel(model=lda_model, texts=texts, dictionary=dictionary, coherence='c_v')
+        coherence_score = coherence_model.get_coherence()
+        logger.info(f"Coherence score: {coherence_score}")
+        return coherence_score
+    except Exception as e:
+        logger.error(f"Error calculating coherence: {e}", exc_info=True)
+        return None
+
+# ─────────────────────────────────────────────────────────────────────
+# Visualization Functions
 # ─────────────────────────────────────────────────────────────────────
 def create_word_cloud(topic_words):
     """
@@ -222,8 +312,7 @@ def create_tsne_visualization_3d(df, corpus, lda_model):
             scatter_df,
             x='x', y='y', z='z',
             color='dominant_topic',
-            hover_data=['title'],
-            title='3D t-SNE Topic Clustering'
+            hover_data=['title']
         )
         fig.update_layout(template='plotly')
         return fig
@@ -294,269 +383,147 @@ def create_ngram_bar_chart(texts):
         return go.Figure().update_layout(template='plotly', title=str(e))
 
 # ─────────────────────────────────────────────────────────────────────
+# Visualization Helper Functions (Moved Inside app.py for Simplicity)
+# ─────────────────────────────────────────────────────────────────────
+def create_topic_distribution_chart(lda_model, selected_topics):
+    """
+    Creates a bar chart of topic word distributions.
+    """
+    words_list = []
+    for t_id in selected_topics:
+        top_pairs = lda_model.show_topic(t_id, topn=20)
+        for (w, prob) in top_pairs:
+            words_list.append((w, prob, t_id))
+
+    if not words_list:
+        return go.Figure().update_layout(template='plotly', title="No topics found")
+
+    df_dist = pd.DataFrame(words_list, columns=["word", "prob", "topic"])
+    fig = px.bar(
+        df_dist,
+        x="prob",
+        y="word",
+        color="topic",
+        orientation="h",
+        title="Topic Word Distributions"
+    )
+    fig.update_layout(template='plotly', yaxis={'categoryorder': 'total ascending'})
+    return fig
+
+# ─────────────────────────────────────────────────────────────────────
 # Theming (Guardian-like)
 # ─────────────────────────────────────────────────────────────────────
 NAVY_BLUE = "#052962"
 
-navbar = dbc.Navbar(
-    [
-        dbc.Row(
-            [
-                dbc.Col(html.Img(src="", height="30px"), width="auto"),
-                dbc.Col(
-                    dbc.NavbarBrand(
-                        "Guardian News Topic Explorer",
-                        className="ms-2",
-                        style={"color": "white", "fontWeight": "bold", "fontSize": "2rem"}
-                    )
-                )
-            ],
-            align="center",
-            className="g-0",
-        )
-    ],
-    color=NAVY_BLUE,
-    dark=True,
-    className="mb-2 px-3"
-)
+# ─────────────────────────────────────────────────────────────────────
+# Dash Setup
+# ─────────────────────────────────────────────────────────────────────
+app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
+server = app.server
+app.config.suppress_callback_exceptions = True
 
 # ─────────────────────────────────────────────────────────────────────
-# About This App (Explainer)
+# App Layout
 # ─────────────────────────────────────────────────────────────────────
-explainer_card = dbc.Card(
-    [
-        dbc.CardHeader("About This App", style={"backgroundColor": NAVY_BLUE, "color": "white"}),
-        dbc.CardBody(
-            [
-                html.P(
-                    [
-                        "This dashboard fetches articles from the Guardian’s RSS, processes them with "
-                        "Natural Language Processing (NLP), and then applies techniques like LDA for topic modeling, "
-                        "bigrams/trigrams detection for multi-word phrases, and t-SNE for visualizing clusters in 3D. "
-                        "Explore the date range and topic filters to see how news stories shift over time! ",
-                        html.A(
-                            "Code & Readme available @ GitHub",
-                            href="https://github.com/StephenJudeD/Guardian-News-RSS---LDA-Model/tree/main",
-                            target="_blank",
-                            style={"color": "blue", "textDecoration": "underline"},
-                        ),
-                    ],
-                    className="mb-0",
-                )
-            ],
-            style={"backgroundColor": "white"},
-        ),
-    ],
-    className="mb-3",
-    style={"backgroundColor": "white"},
-)
-
-
-# Filters
-controls_row = dbc.Row(
-    [
-        dbc.Col(
-            dbc.Card(
-                [
-                    dbc.CardHeader("Select Date Range", style={"backgroundColor": NAVY_BLUE, "color": "white"}),
-                    dbc.CardBody([
-                        dbc.RadioItems(
-                            id='date-select-buttons',
-                            options=[
-                                {'label': 'Last Day', 'value': 'last_day'},
-                                {'label': 'Last Week', 'value': 'last_week'},
-                                {'label': 'Last Two Weeks', 'value': 'last_two_weeks'},
-                            ],
-                            value='last_two_weeks',
-                            inline=True,
-                            className="mb-3"
-                        ),
-                        dcc.DatePickerRange(
-                            id='date-range',
-                            start_date=(datetime.now() - timedelta(days=14)).date(),
-                            end_date=datetime.now().date(),
-                            className="mb-2"
-                        )
-                    ]),
-                ],
-                className="mb-2",
-                style={"backgroundColor": "white"}
-            ),
-            md=4
-        ),
-        dbc.Col(
-            dbc.Card(
-                [
-                    dbc.CardHeader("Select Topics", style={"backgroundColor": NAVY_BLUE, "color": "white"}),
-                    dbc.CardBody([
-                        dcc.Dropdown(
-                            id='topic-filter',
-                            options=[{'label': f'Topic {i}', 'value': i} for i in range(5)],
-                            multi=True,
-                            placeholder="Filter by topics...",
-                            className="mb-2"
-                        )
-                    ]),
-                ],
-                className="mb-2",
-                style={"backgroundColor": "white"}
-            ),
-            md=4
-        ),
-        dbc.Col(md=4)  # blank space
-    ],
-    className="my-2 px-2"
-)
-
-topic_dist_card = dbc.Card(
-    [
-        dbc.CardHeader("Topic Word Distributions", style={"backgroundColor": "white", "fontWeight": "bold"}),
-        dbc.CardBody(
-            dcc.Loading(
-                id="loading-topic-dist",
-                type="circle",
-                children=[dcc.Graph(id='topic-distribution', style={"height": "600px"})]
-            ),
-            style={"backgroundColor": "white"}
-        )
-    ],
-    className="mb-3",
-    style={"backgroundColor": "white"}
-)
-
-tsne_3d_card = dbc.Card(
-    [
-        dbc.CardHeader("3D t-SNE Topic Clustering", style={"backgroundColor": "white", "fontWeight": "bold"}),
-        dbc.CardBody(
-            dcc.Loading(
-                id="loading-3d-tsne",
-                type="circle",
-                children=[dcc.Graph(id='tsne-plot', style={"height": "600px"})]
-            ),
-            style={"backgroundColor": "white"}
-        )
-    ],
-    className="mb-3",
-    style={"backgroundColor": "white"}
-)
-
-wordcloud_card = dbc.Card(
-    [
-        dbc.CardHeader("Word Cloud", style={"backgroundColor": "white", "fontWeight": "bold"}),
-        dbc.CardBody(
-            dcc.Loading(
-                id="loading-wordcloud",
-                type="circle",
-                children=[dcc.Graph(id='word-cloud', style={"height": "600px"})]
-            ),
-            style={"backgroundColor": "white"}
-        )
-    ],
-    className="mb-3",
-    style={"backgroundColor": "white"}
-)
-
-bubble_chart_card = dbc.Card(
-    [
-        dbc.CardHeader("Document Length Bubble Chart", style={"backgroundColor": "white", "fontWeight": "bold"}),
-        dbc.CardBody(
-            dcc.Loading(
-                id="loading-bubble-chart",
-                type="circle",
-                children=[dcc.Graph(id='bubble-chart', style={"height": "600px"})]
-            ),
-            style={"backgroundColor": "white"}
-        )
-    ],
-    className="mb-3",
-    style={"backgroundColor": "white"}
-)
-
-bigrams_trigrams_card = dbc.Card(
-    [
-        dbc.CardHeader("Bigrams & Trigrams", style={"backgroundColor": "white", "fontWeight": "bold"}),
-        dbc.CardBody(
-            dcc.Loading(
-                id="loading-bigrams-trigrams",
-                type="circle",
-                children=[dcc.Graph(id='bigrams-trigrams', style={"height": "600px"})]
-            ),
-            style={"backgroundColor": "white"}
-        )
-    ],
-    className="mb-3",
-    style={"backgroundColor": "white"}
-)
-
-article_table_card = dbc.Card(
-    [
-        dbc.CardHeader("Article Details", style={"backgroundColor": NAVY_BLUE, "color": "white"}),
-        dbc.CardBody([
-            dash_table.DataTable(
-                id='article-details',
-                columns=[
-                    {'name': 'Title', 'id': 'title'},
-                    {'name': 'Published', 'id': 'published'},
-                    {'name': 'Topics', 'id': 'topics'},
-                ],
-                style_table={'overflowX': 'auto'},
-                style_cell={
-                    'backgroundColor': 'white',
-                    'color': 'black',
-                    'textAlign': 'left',
-                    'whiteSpace': 'normal',
-                    'height': 'auto'
-                },
-                style_header={
-                    'backgroundColor': NAVY_BLUE,
-                    'color': 'white',
-                    'fontWeight': 'bold'
-                },
-                page_size=10
-            )
-        ], style={"backgroundColor": "white"})
-    ],
-    className="mb-3",
-    style={"backgroundColor": "white"}
-)
-
 app.layout = dbc.Container([
-    navbar,
-    dbc.Row([dbc.Col(explainer_card, md=12)], className="g-3"),
-    controls_row,
-    dbc.Row([dbc.Col(topic_dist_card, md=12)], className="g-3"),
-    dbc.Row([dbc.Col(tsne_3d_card, md=12)], className="g-3"),
-    dbc.Row([dbc.Col(wordcloud_card, md=12)], className="g-3"),
-    dbc.Row([dbc.Col(bubble_chart_card, md=12)], className="g-3"),
-    dbc.Row([dbc.Col(bigrams_trigrams_card, md=12)], className="g-3"),
-    dbc.Row([dbc.Col(article_table_card, md=12)], className="g-3"),
-], fluid=True, style={"backgroundColor": "#f9f9f9"})
+    html.H1("Guardian News Topic Explorer"),
+
+    # API Key Error Message
+    html.Div(api_key_error_message, style={'color': 'red'}) if api_key_error_message else "",
+
+    # Date Range Selection
+    html.Div([
+        html.Label("Select Date Range:"),
+        dcc.DatePickerRange(
+            id='date-range',
+            start_date=(datetime.now() - timedelta(days=14)).date(),
+            end_date=datetime.now().date()
+        )
+    ]),
+
+    # Number of Topics Input
+    html.Div([
+        html.Label("Number of Topics:"),
+        dcc.Input(
+            id='num-topics-input',
+            type='number',
+            value=5,
+            min=2,
+            max=10,
+            step=1
+        )
+    ]),
+
+    # LDA Passes Input
+    html.Div([
+        html.Label("LDA Passes:"),
+        dcc.Input(
+            id='lda-passes-input',
+            type='number',
+            value=10,
+            min=5,
+            max=50,
+            step=5
+        )
+    ]),
+
+    # Topic Filter
+    html.Div([
+        html.Label("Select Topics:"),
+        dcc.Dropdown(
+            id='topic-filter',
+            options=[{'label': f'Topic {i}', 'value': i} for i in range(10)],  # Adjust range
+            multi=True,
+            placeholder="Filter by topics..."
+        )
+    ]),
+
+    # Coherence Score Display
+    html.Div(id='coherence-score'),
+
+    # Topic Word Distribution
+    dcc.Graph(id='topic-distribution'),
+
+    # Word Cloud
+    dcc.Graph(id='word-cloud'),
+
+    # 3D t-SNE Plot
+    dcc.Graph(id='tsne-plot'),
+
+    # Bubble Chart
+    dcc.Graph(id='bubble-chart'),
+
+    # Bigrams and Trigrams Chart
+    dcc.Graph(id='bigrams-trigrams'),
+
+    # Article Table
+    dash_table.DataTable(
+        id='article-details',
+        columns=[
+            {'name': 'Title', 'id': 'title'},
+            {'name': 'Published', 'id': 'published'},
+            {'name': 'Topics', 'id': 'topics'}
+        ],
+        style_table={'overflowX': 'auto'},
+        style_cell={
+            'backgroundColor': 'white',
+            'color': 'black',
+            'textAlign': 'left',
+            'whiteSpace': 'normal',
+            'height': 'auto'
+        },
+        style_header={
+            'backgroundColor': NAVY_BLUE,
+            'color': 'white',
+            'fontWeight': 'bold'
+        },
+        page_size=10
+    )
+], fluid=True)
 
 # ─────────────────────────────────────────────────────────────────────
 # Callbacks
 # ─────────────────────────────────────────────────────────────────────
-
-@app.callback(
-    [Output('date-range', 'start_date'),
-     Output('date-range', 'end_date')],
-    Input('date-select-buttons', 'value')
-)
-def update_date_range(selected_range):
-    """
-    Sync date picker with radio items.
-    """
-    end_date = datetime.now().date()
-    if selected_range == 'last_day':
-        start_date = end_date - timedelta(days=1)
-    elif selected_range == 'last_week':
-        start_date = end_date - timedelta(days=7)
-    elif selected_range == 'last_two_weeks':
-        start_date = end_date - timedelta(days=14)
-    else:
-        start_date = end_date - timedelta(days=14)
-    return start_date, end_date
-
-
 @app.callback(
     [
         Output('topic-distribution', 'figure'),
@@ -564,35 +531,39 @@ def update_date_range(selected_range):
         Output('tsne-plot', 'figure'),
         Output('bubble-chart', 'figure'),
         Output('bigrams-trigrams', 'figure'),
-        Output('article-details', 'data')
+        Output('article-details', 'data'),
+        Output('coherence-score', 'children')
     ],
     [
         Input('date-range', 'start_date'),
         Input('date-range', 'end_date'),
+        Input('num-topics-input', 'value'),
+        Input('lda-passes-input', 'value'),
         Input('topic-filter', 'value')
     ]
 )
-def update_visuals(start_date, end_date, selected_topics):
+def update_visuals(start_date, end_date, num_topics, lda_passes, selected_topics):
     """
-    Main callback:
-     1) Train LDA on entire set within the selected date range.
-     2) If no topic selected, show all topics [0..4].
-     3) Build visuals & article table.
-     4) We now create the t-SNE from the entire set (unfiltered).
+    Main callback to update visuals based on user inputs.
     """
     try:
-        logger.info(f"update_visuals: {start_date} to {end_date}, topics={selected_topics}")
-        
-        df, texts, dictionary, corpus, lda_model = process_articles(start_date, end_date)
+        logger.info(f"Updating visuals: {start_date}, {end_date}, {num_topics}, {lda_passes}, {selected_topics}")
+
+        if not GUARDIAN_API_KEY:
+            return [go.Figure().update_layout(title="API Key Missing")] * 6 + ["API Key Missing"]
+
+        df, texts, dictionary, corpus, lda_model, coherence_score = process_articles(
+            start_date, end_date, num_topics, lda_passes
+        )
+
         if df is None or df.empty:
-            empty_fig = go.Figure().update_layout(template='plotly', title="No Data")
-            return empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, []
+            return [go.Figure().update_layout(title="No Data")] * 6 + ["No Data"]
 
-        # If no topic selected, default to [0 .. 4]
+        # Default topics if none selected
         if not selected_topics:
-            selected_topics = list(range(lda_model.num_topics))
+            selected_topics = list(range(num_topics))
 
-        # Build doc-level info: doc_length, dominant_topic
+        # Build doc-level info
         doc_lengths = []
         doc_dominant_topics = []
         for i in df.index:
@@ -607,54 +578,22 @@ def update_visuals(start_date, end_date, selected_topics):
         df["doc_length"] = doc_lengths
         df["dominant_topic"] = doc_dominant_topics
 
-        # Filter out articles whose dominant_topic is not in selected_topics
+        # Filter DataFrame
         filtered_df = df[df["dominant_topic"].isin(selected_topics)].copy()
         if filtered_df.empty:
-            # means user selected topics not present in the data
-            empty_fig = go.Figure().update_layout(template='plotly', title="No Data (Dominant Topic Filter)")
-            return empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, []
+            return [go.Figure().update_layout(title="No Data (Topic Filtered)")] * 6 + ["No Data (Topic Filtered)"]
 
-        # Build subset of texts/corpus for the articles in filtered_df
-        filtered_texts = []
-        filtered_corpus = []
-        for i in filtered_df.index:
-            filtered_texts.append(texts[i])
-            filtered_corpus.append(corpus[i])
+        filtered_texts = [texts[i] for i in filtered_df.index]
+        filtered_corpus = [corpus[i] for i in filtered_df.index]
 
-        # 1) Topic Word Distribution (for all selected topics)
-        words_list = []
-        for t_id in selected_topics:
-            top_pairs = lda_model.show_topic(t_id, topn=20)
-            for (w, prob) in top_pairs:
-                words_list.append((w, prob, t_id))
-        if not words_list:
-            dist_fig = go.Figure().update_layout(template='plotly', title="No topics found")
-        else:
-            df_dist = pd.DataFrame(words_list, columns=["word", "prob", "topic"])
-            dist_fig = px.bar(
-                df_dist,
-                x="prob",
-                y="word",
-                color="topic",
-                orientation="h",
-                title="Topic Word Distributions"
-            )
-            dist_fig.update_layout(template='plotly', yaxis={'categoryorder': 'total ascending'})
-
-        # 2) Word Cloud (take first selected topic)
-        first_topic = selected_topics[0]
-        wc_fig = create_word_cloud(lda_model.show_topic(first_topic, topn=30))
-
-        # 3) 3D t-SNE (use the entire df/corpus, not the filtered_df/corpus)
+        # Create Visualizations
+        topic_dist_fig = create_topic_distribution_chart(lda_model, selected_topics)
+        wc_fig = create_word_cloud(lda_model.show_topic(selected_topics[0], topn=30)) if selected_topics else go.Figure() # Word cloud for first selected topic
         tsne_fig = create_tsne_visualization_3d(df, corpus, lda_model)
-
-        # 4) Bubble Chart (use filtered_df)
         bubble_fig = create_bubble_chart(filtered_df)
-
-        # 5) Bigrams & Trigrams (use filtered texts)
         ngram_fig = create_ngram_bar_chart(filtered_texts)
 
-        # 6) Article Table data (only for the filtered set)
+        # Article Table Data
         table_data = []
         for i in filtered_df.index:
             doc_topics = lda_model.get_document_topics(corpus[i])
@@ -668,15 +607,16 @@ def update_visuals(start_date, end_date, selected_topics):
                 'topics': '\n'.join(these_topics)
             })
 
-        return dist_fig, wc_fig, tsne_fig, bubble_fig, ngram_fig, table_data
+        return topic_dist_fig, wc_fig, tsne_fig, bubble_fig, ngram_fig, table_data, f"Coherence Score: {coherence_score:.4f}"
 
     except Exception as e:
-        logger.error(f"update_visuals error: {e}", exc_info=True)
-        empty_fig = go.Figure().update_layout(template='plotly', title=f"Error: {e}")
-        return empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, []
+        logger.error(f"Error in update_visuals: {e}", exc_info=True)
+        error_message = f"Error: {e}"
+        return [go.Figure().update_layout(title=error_message)] * 6 + [error_message]
 
-
+# ─────────────────────────────────────────────────────────────────────
+# Run the App
+# ─────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     port = int(os.getenv('PORT', 8050))
     app.run_server(debug=True, port=port)
-
