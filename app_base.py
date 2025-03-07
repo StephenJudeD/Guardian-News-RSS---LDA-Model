@@ -621,25 +621,36 @@ def update_visuals(start_date, end_date, selected_topics):
             filtered_texts.append(texts[i])
             filtered_corpus.append(corpus[i])
 
-        # 1) Topic Word Distribution (for all selected topics)
+        # 1) Topic Word Distribution -> RADAR CHART
         words_list = []
         for t_id in selected_topics:
             top_pairs = lda_model.show_topic(t_id, topn=20)
             for (w, prob) in top_pairs:
                 words_list.append((w, prob, t_id))
+
         if not words_list:
             dist_fig = go.Figure().update_layout(template='plotly', title="No topics found")
         else:
             df_dist = pd.DataFrame(words_list, columns=["word", "prob", "topic"])
-            dist_fig = px.bar(
-                df_dist,
-                x="prob",
-                y="word",
-                color="topic",
-                orientation="h",
-                title="Topic Word Distributions"
+
+            # Build a radar chart
+            dist_fig = go.Figure()
+            for t_id in selected_topics:
+                sub_df = df_dist[df_dist['topic'] == t_id]
+                if sub_df.empty:
+                    continue
+                dist_fig.add_trace(go.Scatterpolar(
+                    r=sub_df['prob'],
+                    theta=sub_df['word'],
+                    fill='toself',
+                    name=f"Topic {t_id}"
+                ))
+            dist_fig.update_layout(
+                template='plotly',
+                polar=dict(radialaxis=dict(visible=True)),
+                showlegend=True,
+                title="Topic Word Radar Chart"
             )
-            dist_fig.update_layout(template='plotly', yaxis={'categoryorder': 'total ascending'})
 
         # 2) Word Cloud (take first selected topic)
         first_topic = selected_topics[0]
