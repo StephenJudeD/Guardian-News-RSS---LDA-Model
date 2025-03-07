@@ -1,5 +1,5 @@
 import dash
-from dash import Dash, html, dcc, Input, Output, dash_table
+from dash import Dash, dcc, html, Input, Output, dash_table
 import dash_bootstrap_components as dbc
 import plotly.express as px
 import plotly.graph_objects as go
@@ -42,12 +42,11 @@ CUSTOM_STOP_WORDS = {
     'nt', 'dont', 'doesnt', 'cant', 'couldnt', 'shouldnt'
 }
 
-# Define colors – using Guardian blue and a poppy purple accent.
+# Define colours – using Guardian blue and a poppy purple accent.
 NAVY_BLUE = "#052962"
 POPPY_PURPLE = "#A020F0"
-# Create a gradient for card headers (you can always tweak the gradient)
 HEADER_BACKGROUND = f"linear-gradient(90deg, {NAVY_BLUE}, {POPPY_PURPLE})"
-# Pre-assign colors for our 5 topics
+# Pre-assign colours for our 5 topics (keys must be integers)
 TOPIC_COLORS = {
     0: POPPY_PURPLE,
     1: NAVY_BLUE,
@@ -87,9 +86,9 @@ app.config.suppress_callback_exceptions = True
 @lru_cache(maxsize=64)
 def process_articles(start_date, end_date):
     """
-    Fetch Guardian articles in the given date range,
-    then tokenize, detect bigrams/trigrams, and train LDA on the entire set.
-    Return (df, texts, dictionary, corpus, lda_model).
+    Fetch Guardian articles from start_date to end_date,
+    then tokenize, detect bigrams/trigrams, and train an LDA model.
+    Returns: (df, texts, dictionary, corpus, lda_model)
     """
     try:
         logger.info(f"Fetching articles from {start_date} to {end_date}")
@@ -122,10 +121,7 @@ def process_articles(start_date, end_date):
                 tokenized_texts.append([])
                 continue
             words = word_tokenize(str(content))
-            filtered = [
-                w.lower() for w in words
-                if w.isalnum() and w.lower() not in stop_words
-            ]
+            filtered = [w.lower() for w in words if w.isalnum() and w.lower() not in stop_words]
             tokenized_texts.append(filtered)
 
         # Bigrams & Trigrams
@@ -166,7 +162,7 @@ def process_articles(start_date, end_date):
 # ─────────────────────────────────────────────────────────────────────
 def create_word_cloud(topic_words):
     """
-    Word cloud from LDA topic-word pairs, white background.
+    Create a word cloud from LDA topic-word pairs.
     """
     try:
         freq_dict = dict(topic_words)
@@ -185,102 +181,87 @@ def create_word_cloud(topic_words):
         logger.error(f"Error creating word cloud: {e}", exc_info=True)
         return go.Figure().update_layout(template='plotly')
 
-def create_tsne_visualization_3d(df, corpus, lda_model):
+def create_tsne_visualization_2d(df, corpus, lda_model):
     """
-    3D t-SNE scatter (Plotly).
-    Uses all documents in df/corpus to avoid filtering by topic.
+    Create a 2D t-SNE scatter plot of document topics.
     """
     try:
         if df is None or len(df) < 2:
-            return go.Figure().update_layout(
-                template='plotly',
-                title='Not enough documents for t-SNE'
-            )
+            return go.Figure().update_layout(template='plotly', title='Not enough documents for t-SNE')
 
         doc_topics_list = []
         for i in df.index:
-            topic_weights = [0.0]*lda_model.num_topics
+            topic_weights = [0.0] * lda_model.num_topics
             for topic_id, w in lda_model[corpus[i]]:
                 topic_weights[topic_id] = w
             doc_topics_list.append(topic_weights)
 
         doc_topics_array = np.array(doc_topics_list, dtype=np.float32)
         if len(doc_topics_array) < 2:
-            return go.Figure().update_layout(
-                template='plotly',
-                title='Not enough docs for t-SNE'
-            )
+            return go.Figure().update_layout(template='plotly', title='Not enough docs for t-SNE')
 
-        perplex_val = 30
-        if len(doc_topics_array) < 30:
-            perplex_val = max(2, len(doc_topics_array) - 1)
+        # Configure perplexity based on sample size
+        perplex_val = 30 if len(doc_topics_array) >= 30 else max(2, len(doc_topics_array)-1)
 
-        tsne = TSNE(
-            n_components=3,
-            random_state=42,
-            perplexity=perplex_val,
-            n_jobs=1
-        )
-        embedded = tsne.fit_transform(doc_topics_array)  # shape: (N, 3)
+        tsne = TSNE(n_components=2, random_state=42, perplexity=perplex_val, n_jobs=1)
+        embedded = tsne.fit_transform(doc_topics_array)  # shape: (N, 2)
 
         scatter_df = pd.DataFrame({
             'x': embedded[:, 0],
             'y': embedded[:, 1],
-            'z': embedded[:, 2],
             'dominant_topic': [np.argmax(row) for row in doc_topics_array],
-            'doc_index': df.index,
             'title': df['title']
         })
 
-        fig = px.scatter_3d(
+        fig = px.scatter(
             scatter_df,
-            x='x', y='y', z='z',
+            x='x',
+            y='y',
             color='dominant_topic',
+            color_discrete_map=TOPIC_COLORS,
             hover_data=['title'],
-            title='3D t-SNE Topic Clustering'
+            title='2D t-SNE Topic Clustering'
         )
         fig.update_layout(template='plotly')
         return fig
     except Exception as e:
-        logger.error(f"Error creating 3D t-SNE: {e}", exc_info=True)
+        logger.error(f"Error creating 2D t-SNE: {e}", exc_info=True)
         return go.Figure().update_layout(template='plotly', title=str(e))
 
 def create_bubble_chart(df):
     """
-    Creates a bubble chart of published date vs. document length (capped at 1000).
-    Bubbles are sized by the capped document length and colored by dominant_topic.
+    Creates a bubble chart of published date vs. capped document length with an animation slider.
+    Document lengths are capped at 1000 tokens.
     """
     try:
         if df is None or df.empty:
-            return go.Figure().update_layout(
-                template='plotly',
-                title='Bubble Chart Unavailable'
-            )
+            return go.Figure().update_layout(template='plotly', title='Bubble Chart Unavailable')
         
-        # Cap the document length at 1000
+        # Cap document length at 1000
         df['capped_doc_length'] = df['doc_length'].apply(lambda x: min(x, 1000))
+        # Create a string version of the published date for the animation slider
+        df['published_str'] = df['published'].dt.strftime('%Y-%m-%d')
         
-        # Use Plotly Express to create the bubble chart
         fig = px.scatter(
             df,
             x='published',
             y='capped_doc_length',
             size='capped_doc_length',
             color='dominant_topic',
+            animation_frame='published_str',
+            color_discrete_map=TOPIC_COLORS,
             hover_data=['title'],
             title='Document Length Bubble Chart (Max 1000)'
         )
         fig.update_layout(template='plotly')
         return fig
-
     except Exception as e:
         logger.error(f"Error creating bubble chart: {e}", exc_info=True)
         return go.Figure().update_layout(template='plotly', title=str(e))
 
 def create_ngram_bar_chart(texts):
     """
-    Bar chart of the most common bigrams/trigrams (indicated by underscores).
-    We'll pick the top 15 by frequency.
+    Create a bar chart of the most common bigrams/trigrams (tokens containing underscores).
     """
     try:
         ngram_counts = {}
@@ -290,10 +271,7 @@ def create_ngram_bar_chart(texts):
                     ngram_counts[tok] = ngram_counts.get(tok, 0) + 1
 
         if not ngram_counts:
-            return go.Figure().update_layout(
-                template='plotly',
-                title="No bigrams/trigrams found"
-            )
+            return go.Figure().update_layout(template='plotly', title="No bigrams/trigrams found")
 
         sorted_ngrams = sorted(ngram_counts.items(), key=lambda x: x[1], reverse=True)
         top_ngrams = sorted_ngrams[:15]
@@ -306,7 +284,7 @@ def create_ngram_bar_chart(texts):
             orientation="h",
             title="Top Bigrams & Trigrams"
         )
-        fig.update_layout(template='plotly', yaxis={"categoryorder": "total ascending"})
+        fig.update_layout(template='plotly', yaxis={'categoryorder': 'total ascending'})
         return fig
     except Exception as e:
         logger.error(f"Error creating ngram bar chart: {e}", exc_info=True)
@@ -314,7 +292,7 @@ def create_ngram_bar_chart(texts):
 
 def create_topics_over_time(filtered_df):
     """
-    Creates a stacked bar chart showing how many articles per topic were published on each day.
+    Create a stacked bar chart showing the number of articles per dominant topic per day.
     """
     try:
         if filtered_df is None or filtered_df.empty:
@@ -348,7 +326,7 @@ def create_topics_over_time(filtered_df):
 
 def create_topic_donut_chart(filtered_df):
     """
-    Creates a donut chart summarizing the counts of dominant topics
+    Create a donut chart that summarizes the counts of dominant topics in the filtered data.
     """
     try:
         if filtered_df is None or filtered_df.empty:
@@ -374,7 +352,7 @@ def create_topic_donut_chart(filtered_df):
         return go.Figure().update_layout(template='plotly', title=f"Error: {e}")
 
 # ─────────────────────────────────────────────────────────────────────
-# Navbar & Cards (with Updated Styling)
+# Navbar & Cards (Layout)
 # ─────────────────────────────────────────────────────────────────────
 navbar = dbc.Navbar(
     [
@@ -390,7 +368,7 @@ navbar = dbc.Navbar(
                 )
             ],
             align="center",
-            className="g-0",
+            className="g-0"
         )
     ],
     color=NAVY_BLUE,
@@ -405,84 +383,80 @@ explainer_card = dbc.Card(
             [
                 html.P(
                     [
-                        "This dashboard fetches articles from the Guardian’s RSS, processes them with "
-                        "Natural Language Processing (NLP), and then applies techniques like LDA for topic modeling, "
-                        "bigrams/trigrams detection for multi-word phrases, and t-SNE for visualizing clusters in 3D. "
-                        "Explore the date range and topic filters to see how news stories shift over time! ",
+                        "This dashboard fetches articles from the Guardian’s RSS, processes them with Natural Language Processing (NLP), "
+                        "applies LDA for topic modeling (with bigrams/trigrams detection), and uses techniques like 2D t-SNE for clustering. "
+                        "Use the dynamic slider to adjust the time window (in days ago) and filter topics to see how news stories shift over time. ",
                         html.A(
-                            "Code & Readme available @ GitHub",
+                            "Code & Readme available on GitHub",
                             href="https://github.com/StephenJudeD/Guardian-News-RSS---LDA-Model/tree/main",
                             target="_blank",
-                            style={"color": "blue", "textDecoration": "underline"},
-                        ),
+                            style={"color": "blue", "textDecoration": "underline"}
+                        )
                     ],
-                    className="mb-0",
+                    className="mb-0"
                 )
             ],
-            style={"backgroundColor": "white"},
-        ),
+            style={"backgroundColor": "white"}
+        )
     ],
     className="mb-3",
-    style={"backgroundColor": "white"},
+    style={"backgroundColor": "white"}
 )
 
-# Filters
-controls_row = dbc.Row(
-    [
-        dbc.Col(
-            dbc.Card(
+# Use a dynamic range slider for the time filter (in days ago)
+time_slider_card = dbc.Col(
+    dbc.Card(
+        [
+            dbc.CardHeader("Select Time Range (Days Ago)", style={"background": HEADER_BACKGROUND, "color": "white"}),
+            dbc.CardBody(
                 [
-                    dbc.CardHeader("Select Date Range", style={"background": HEADER_BACKGROUND, "color": "white"}),
-                    dbc.CardBody([
-                        dbc.RadioItems(
-                            id='date-select-buttons',
-                            options=[
-                                {'label': 'Last Day', 'value': 'last_day'},
-                                {'label': 'Last Week', 'value': 'last_week'},
-                                {'label': 'Last Two Weeks', 'value': 'last_two_weeks'},
-                            ],
-                            value='last_two_weeks',
-                            inline=True,
-                            className="mb-3"
-                        ),
-                        dcc.DatePickerRange(
-                            id='date-range',
-                            start_date=(datetime.now() - timedelta(days=14)).date(),
-                            end_date=datetime.now().date(),
-                            className="mb-2"
-                        )
-                    ]),
-                ],
-                className="mb-2",
-                style={"backgroundColor": "white"}
-            ),
-            md=4
-        ),
-        dbc.Col(
-            dbc.Card(
-                [
-                    dbc.CardHeader("Select Topics", style={"background": HEADER_BACKGROUND, "color": "white"}),
-                    dbc.CardBody([
-                        dcc.Dropdown(
-                            id='topic-filter',
-                            options=[{'label': f'Topic {i}', 'value': i} for i in range(5)],
-                            multi=True,
-                            placeholder="Filter by topics...",
-                            className="mb-2"
-                        )
-                    ]),
-                ],
-                className="mb-2",
-                style={"backgroundColor": "white"}
-            ),
-            md=4
-        ),
-        dbc.Col(md=4)  # blank space
-    ],
-    className="my-2 px-2"
+                    dcc.RangeSlider(
+                        id='days-slider',
+                        min=0,
+                        max=30,  # Maximum days ago; adjust as needed or dynamically
+                        step=1,
+                        value=[0, 14],  # Default: from today (0 days ago) to 14 days ago
+                        marks={i: {'label': f"{i}d"} for i in range(0, 31, 5)},
+                        tooltip={"placement": "bottom"}
+                    )
+                ]
+            )
+        ],
+        className="mb-2",
+        style={"backgroundColor": "white"}
+    ),
+    md=4
 )
 
-# Cards for visualizations
+# Dropdown for topic filtering remains unchanged
+topic_filter_card = dbc.Col(
+    dbc.Card(
+        [
+            dbc.CardHeader("Select Topics", style={"background": HEADER_BACKGROUND, "color": "white"}),
+            dbc.CardBody(
+                [
+                    dcc.Dropdown(
+                        id='topic-filter',
+                        options=[{'label': f'Topic {i}', 'value': i} for i in range(5)],
+                        multi=True,
+                        placeholder="Filter by topics...",
+                        className="mb-2"
+                    )
+                ]
+            )
+        ],
+        className="mb-2",
+        style={"backgroundColor": "white"}
+    ),
+    md=4
+)
+
+# Empty column for spacing (if needed)
+empty_col = dbc.Col(md=4)
+
+controls_row = dbc.Row([time_slider_card, topic_filter_card, empty_col], className="my-2 px-2")
+
+# Cards for Visualizations
 topic_dist_card = dbc.Card(
     [
         dbc.CardHeader("Topic Word Distributions", style={"background": HEADER_BACKGROUND, "color": "white", "fontWeight": "bold"}),
@@ -499,12 +473,12 @@ topic_dist_card = dbc.Card(
     style={"backgroundColor": "white"}
 )
 
-tsne_3d_card = dbc.Card(
+tsne_2d_card = dbc.Card(
     [
-        dbc.CardHeader("3D t-SNE Topic Clustering", style={"background": HEADER_BACKGROUND, "color": "white", "fontWeight": "bold"}),
+        dbc.CardHeader("2D t-SNE Topic Clustering", style={"background": HEADER_BACKGROUND, "color": "white", "fontWeight": "bold"}),
         dbc.CardBody(
             dcc.Loading(
-                id="loading-3d-tsne",
+                id="loading-2d-tsne",
                 type="circle",
                 children=[dcc.Graph(id='tsne-plot', style={"height": "600px"})]
             ),
@@ -573,7 +547,7 @@ topic_donut_card = dbc.Card(
                 children=[dcc.Graph(id='topic-donut', style={"height": "600px"})]
             ),
             style={"backgroundColor": "white"}
-        ),
+        )
     ],
     className="mb-3",
     style={"backgroundColor": "white"}
@@ -598,30 +572,33 @@ bigrams_trigrams_card = dbc.Card(
 article_table_card = dbc.Card(
     [
         dbc.CardHeader("Article Details", style={"background": HEADER_BACKGROUND, "color": "white"}),
-        dbc.CardBody([
-            dash_table.DataTable(
-                id='article-details',
-                columns=[
-                    {'name': 'Title', 'id': 'title'},
-                    {'name': 'Published', 'id': 'published'},
-                    {'name': 'Topics', 'id': 'topics'},
-                ],
-                style_table={'overflowX': 'auto'},
-                style_cell={
-                    'backgroundColor': 'white',
-                    'color': 'black',
-                    'textAlign': 'left',
-                    'whiteSpace': 'normal',
-                    'height': 'auto'
-                },
-                style_header={
-                    'backgroundColor': HEADER_BACKGROUND,
-                    'color': 'white',
-                    'fontWeight': 'bold'
-                },
-                page_size=10
-            )
-        ], style={"backgroundColor": "white"})
+        dbc.CardBody(
+            [
+                dash_table.DataTable(
+                    id='article-details',
+                    columns=[
+                        {'name': 'Title', 'id': 'title'},
+                        {'name': 'Published', 'id': 'published'},
+                        {'name': 'Topics', 'id': 'topics'},
+                    ],
+                    style_table={'overflowX': 'auto'},
+                    style_cell={
+                        'backgroundColor': 'white',
+                        'color': 'black',
+                        'textAlign': 'left',
+                        'whiteSpace': 'normal',
+                        'height': 'auto'
+                    },
+                    style_header={
+                        'backgroundColor': HEADER_BACKGROUND,
+                        'color': 'white',
+                        'fontWeight': 'bold'
+                    },
+                    page_size=10
+                )
+            ],
+            style={"backgroundColor": "white"}
+        )
     ],
     className="mb-3",
     style={"backgroundColor": "white"}
@@ -632,7 +609,7 @@ app.layout = dbc.Container([
     dbc.Row([dbc.Col(explainer_card, md=12)], className="g-3"),
     controls_row,
     dbc.Row([dbc.Col(topic_dist_card, md=12)], className="g-3"),
-    dbc.Row([dbc.Col(tsne_3d_card, md=12)], className="g-3"),
+    dbc.Row([dbc.Col(tsne_2d_card, md=12)], className="g-3"),
     dbc.Row([dbc.Col(wordcloud_card, md=12)], className="g-3"),
     dbc.Row([dbc.Col(bubble_chart_card, md=12)], className="g-3"),
     dbc.Row([dbc.Col(topics_over_time_card, md=12)], className="g-3"),
@@ -644,28 +621,6 @@ app.layout = dbc.Container([
 # ─────────────────────────────────────────────────────────────────────
 # Callbacks
 # ─────────────────────────────────────────────────────────────────────
-
-@app.callback(
-    [Output('date-range', 'start_date'),
-     Output('date-range', 'end_date')],
-    Input('date-select-buttons', 'value')
-)
-def update_date_range(selected_range):
-    """
-    Sync date picker with radio items.
-    """
-    end_date = datetime.now().date()
-    if selected_range == 'last_day':
-        start_date = end_date - timedelta(days=1)
-    elif selected_range == 'last_week':
-        start_date = end_date - timedelta(days=7)
-    elif selected_range == 'last_two_weeks':
-        start_date = end_date - timedelta(days=14)
-    else:
-        start_date = end_date - timedelta(days=14)
-    return start_date, end_date
-
-
 @app.callback(
     [
         Output('topic-distribution', 'figure'),
@@ -678,20 +633,18 @@ def update_date_range(selected_range):
         Output('article-details', 'data')
     ],
     [
-        Input('date-range', 'start_date'),
-        Input('date-range', 'end_date'),
+        Input('days-slider', 'value'),
         Input('topic-filter', 'value')
     ]
 )
-def update_visuals(start_date, end_date, selected_topics):
-    """
-    Main callback:
-     1) Train LDA on entire set within the selected date range.
-     2) If no topic selected, show all topics [0..4].
-     3) Build visuals & article table.
-     4) t-SNE is computed on the entire document set.
-    """
+def update_visuals(days_range, selected_topics):
     try:
+        # Convert slider values (days ago) to actual dates.
+        # days_range = [min_val, max_val] where min_val is the newer date (0 = today)
+        today = datetime.now().date()
+        start_date = (today - timedelta(days=days_range[1])).strftime('%Y-%m-%d')
+        end_date = (today - timedelta(days=days_range[0])).strftime('%Y-%m-%d')
+
         logger.info(f"update_visuals: {start_date} to {end_date}, topics={selected_topics}")
         
         df, texts, dictionary, corpus, lda_model = process_articles(start_date, end_date)
@@ -699,40 +652,32 @@ def update_visuals(start_date, end_date, selected_topics):
             empty_fig = go.Figure().update_layout(template='plotly', title="No Data")
             return empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, []
 
-        # If no topic selected, default to [0 .. 4]
+        # If no topic is selected, default to all topics (0 through 4)
         if not selected_topics:
             selected_topics = list(range(lda_model.num_topics))
 
-        # Build doc-level info: doc_length, dominant_topic
+        # Build document-level info: document length and dominant topic
         doc_lengths = []
         doc_dominant_topics = []
         for i in df.index:
             doc_topics = lda_model.get_document_topics(corpus[i])
             n_tokens = len(texts[i] if texts[i] else [])
             doc_lengths.append(n_tokens)
-            if doc_topics:
-                best_t = max(doc_topics, key=lambda x: x[1])[0]
-            else:
-                best_t = -1
+            best_t = max(doc_topics, key=lambda x: x[1])[0] if doc_topics else -1
             doc_dominant_topics.append(best_t)
         df["doc_length"] = doc_lengths
         df["dominant_topic"] = doc_dominant_topics
 
-        # Filter out articles whose dominant_topic is not in selected_topics
+        # Filter articles with dominant topics in selected_topics
         filtered_df = df[df["dominant_topic"].isin(selected_topics)].copy()
         if filtered_df.empty:
-            # means user selected topics not present in the data
             empty_fig = go.Figure().update_layout(template='plotly', title="No Data (Dominant Topic Filter)")
             return empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, []
+        
+        filtered_texts = [texts[i] for i in filtered_df.index]
+        filtered_corpus = [corpus[i] for i in filtered_df.index]
 
-        # Build subset of texts/corpus for the articles in filtered_df
-        filtered_texts = []
-        filtered_corpus = []
-        for i in filtered_df.index:
-            filtered_texts.append(texts[i])
-            filtered_corpus.append(corpus[i])
-
-        # 1) Topic Word Distribution (for all selected topics)
+        # 1) Topic Word Distribution
         words_list = []
         for t_id in selected_topics:
             top_pairs = lda_model.show_topic(t_id, topn=20)
@@ -747,31 +692,32 @@ def update_visuals(start_date, end_date, selected_topics):
                 x="prob",
                 y="word",
                 color="topic",
+                color_discrete_map=TOPIC_COLORS,
                 orientation="h",
                 title="Topic Word Distributions"
             )
             dist_fig.update_layout(template='plotly', yaxis={'categoryorder': 'total ascending'})
 
-        # 2) Word Cloud (take first selected topic)
+        # 2) Word Cloud for the first selected topic
         first_topic = selected_topics[0]
         wc_fig = create_word_cloud(lda_model.show_topic(first_topic, topn=30))
 
-        # 3) 3D t-SNE (using the entire dataset)
-        tsne_fig = create_tsne_visualization_3d(df, corpus, lda_model)
+        # 3) 2D t-SNE visualization
+        tsne_fig = create_tsne_visualization_2d(df, corpus, lda_model)
 
-        # 4) Bubble Chart (use filtered_df)
+        # 4) Bubble Chart (with animation slider from published_str)
         bubble_fig = create_bubble_chart(filtered_df)
 
-        # 5) Bigrams & Trigrams (use filtered texts)
+        # 5) N-grams (bigrams/trigrams) Bar Chart
         ngram_fig = create_ngram_bar_chart(filtered_texts)
 
-        # 6) Topics Over Time (stacked bar chart from filtered_df)
+        # 6) Topics Over Time (stacked bar chart)
         topics_over_time_fig = create_topics_over_time(filtered_df)
 
-        # 7) Topic Distribution Donut Chart (aggregates dominant topics in filtered_df)
+        # 7) Topic Distribution Donut Chart
         donut_fig = create_topic_donut_chart(filtered_df)
 
-        # 8) Article Table data for the filtered set
+        # 8) Article Details Table Data
         table_data = []
         for i in filtered_df.index:
             doc_topics = lda_model.get_document_topics(corpus[i])
