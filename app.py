@@ -247,8 +247,8 @@ def create_tsne_visualization_3d(df, corpus, lda_model):
 
 def create_bubble_chart(df):
     """
-    Bubble chart: doc length vs published date, sized by doc length,
-    colored by dominant_topic.
+    Creates a bubble chart of published date vs. document length (capped at 1000).
+    Bubbles are sized by the capped document length and colored by dominant_topic.
     """
     try:
         if df is None or df.empty:
@@ -256,18 +256,23 @@ def create_bubble_chart(df):
                 template='plotly',
                 title='Bubble Chart Unavailable'
             )
-
+        
+        # Cap the document length at 1000
+        df['capped_doc_length'] = df['doc_length'].apply(lambda x: min(x, 1000))
+        
+        # Use Plotly Express to create the bubble chart
         fig = px.scatter(
             df,
             x='published',
-            y='doc_length',
-            size='doc_length',
+            y='capped_doc_length',
+            size='capped_doc_length',
             color='dominant_topic',
             hover_data=['title'],
-            title='Document Length Bubble Chart'
+            title='Document Length Bubble Chart (Max 1000)'
         )
         fig.update_layout(template='plotly')
         return fig
+
     except Exception as e:
         logger.error(f"Error creating bubble chart: {e}", exc_info=True)
         return go.Figure().update_layout(template='plotly', title=str(e))
