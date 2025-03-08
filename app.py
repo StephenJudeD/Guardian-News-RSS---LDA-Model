@@ -1,5 +1,5 @@
 import dash
-from dash import Dash, html, dcc, Input, Output, dash_table
+from dash import Dash, html, dcc, Input, Output, dash_table, State
 import dash_bootstrap_components as dbc
 import plotly.express as px
 import plotly.graph_objects as go
@@ -32,14 +32,16 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────────────────────────────
-# Expanded Stop Words
+# Expanded Stop Words (NEW/CHANGED: added more)
 # ─────────────────────────────────────────────────────────────────────
 CUSTOM_STOP_WORDS = {
     'says', 'said', 'would', 'also', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
     'new', 'like', 'get', 'make', 'first', 'year', 'years', 'time', 'way', 'says', 'say', 'saying', 'according',
     'told', 'reuters', 'guardian', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
     'week', 'month', 'us', 'people', 'government', 'could', 'will', 'may', 'trump', 'published', 'article', 'editor',
-    'nt', 'dont', 'doesnt', 'cant', 'couldnt', 'shouldnt'
+    'nt', 'dont', 'doesnt', 'cant', 'couldnt', 'shouldnt', 'last', 'well', 'still', 'price',
+    # Added more for demonstration:
+    'breaking', 'update', 'live', 'say'
 }
 
 # ─────────────────────────────────────────────────────────────────────
@@ -63,9 +65,39 @@ guardian = GuardianFetcher(GUARDIAN_API_KEY)
 # ─────────────────────────────────────────────────────────────────────
 # Dash Setup
 # ─────────────────────────────────────────────────────────────────────
-app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
+# NEW/CHANGED: By default, let's load a dark theme (DARKLY) 
+# and let the user toggle to a light theme if they choose.
+external_stylesheets = [dbc.themes.DARKLY]  # default dark
+app = Dash(__name__, external_stylesheets=external_stylesheets)
 server = app.server
 app.config.suppress_callback_exceptions = True
+
+# We will store the theme names in a dictionary
+THEME_URLS = {
+    "dark": dbc.themes.DARKLY,
+    "light": dbc.themes.BOOTSTRAP
+}
+
+# ─────────────────────────────────────────────────────────────────────
+# Dark/Light Plotly Themes
+# ─────────────────────────────────────────────────────────────────────
+def get_plotly_dark_layout(fig_title=""):
+    """Return a default layout for dark-mode figures."""
+    return dict(
+        paper_bgcolor="#303030",
+        plot_bgcolor="#303030",
+        font_color="white",
+        title=fig_title
+    )
+
+def get_plotly_light_layout(fig_title=""):
+    """Return a default layout for light-mode figures."""
+    return dict(
+        paper_bgcolor="white",
+        plot_bgcolor="white",
+        font_color="black",
+        title=fig_title
+    )
 
 # ─────────────────────────────────────────────────────────────────────
 # Data Processing
@@ -150,28 +182,38 @@ def process_articles(start_date, end_date, num_topics=5):
 # ─────────────────────────────────────────────────────────────────────
 # Visualization Helpers
 # ─────────────────────────────────────────────────────────────────────
-def create_word_cloud(topic_words):
+def create_word_cloud(topic_words, dark_mode=False):
     """
-    Create a word cloud from LDA topic-word pairs, white background.
+    Create a word cloud from LDA topic-word pairs.
+    If dark_mode=True, word cloud background is black, else white.
     """
     try:
         freq_dict = dict(topic_words)
+        bg = "black" if dark_mode else "white"
+        font_color = "white" if dark_mode else "black"
+
         wc = WordCloud(
-            background_color='white',
+            background_color=bg,
             width=800,
             height=400,
             colormap='viridis'
         ).generate_from_frequencies(freq_dict)
+
         fig = px.imshow(wc)
-        fig.update_layout(template='plotly', title="Topic Word Cloud")
+        # If dark mode, tweak layout
+        if dark_mode:
+            fig.update_layout(**get_plotly_dark_layout("Topic Word Cloud"))
+        else:
+            fig.update_layout(**get_plotly_light_layout("Topic Word Cloud"))
+
         fig.update_xaxes(showticklabels=False)
         fig.update_yaxes(showticklabels=False)
         return fig
     except Exception as e:
         logger.error(f"Error creating word cloud: {e}", exc_info=True)
-        return go.Figure().update_layout(template='plotly')
+        return go.Figure()
 
-def create_tsne_visualization_3d(df, corpus, lda_model, perplexity=30):
+def create_tsne_visualization_3d(df, corpus, lda_model, perplexity=30, dark_mode=False):
     """
     3D t-SNE scatter (Plotly).
     Uses all documents in df/corpus to avoid filtering by topic.
@@ -179,10 +221,12 @@ def create_tsne_visualization_3d(df, corpus, lda_model, perplexity=30):
     """
     try:
         if df is None or len(df) < 2:
-            return go.Figure().update_layout(
-                template='plotly',
-                title='Not enough documents for t-SNE'
-            )
+            fig = go.Figure()
+            if dark_mode:
+                fig.update_layout(**get_plotly_dark_layout("Not enough documents for t-SNE"))
+            else:
+                fig.update_layout(**get_plotly_light_layout("Not enough documents for t-SNE"))
+            return fig
 
         doc_topics_list = []
         for i in df.index:
@@ -193,21 +237,21 @@ def create_tsne_visualization_3d(df, corpus, lda_model, perplexity=30):
 
         doc_topics_array = np.array(doc_topics_list, dtype=np.float32)
         if len(doc_topics_array) < 2:
-            return go.Figure().update_layout(
-                template='plotly',
-                title='Not enough docs for t-SNE'
-            )
+            fig = go.Figure()
+            if dark_mode:
+                fig.update_layout(**get_plotly_dark_layout("Not enough docs for t-SNE"))
+            else:
+                fig.update_layout(**get_plotly_light_layout("Not enough docs for t-SNE"))
+            return fig
 
-        # If we have very few documents, reduce perplexity accordingly
         perplex_val = min(perplexity, max(2, len(doc_topics_array) - 1))
-
         tsne = TSNE(
             n_components=3,
             random_state=42,
             perplexity=perplex_val,
             n_jobs=1
         )
-        embedded = tsne.fit_transform(doc_topics_array)  # shape: (N, 3)
+        embedded = tsne.fit_transform(doc_topics_array)
 
         scatter_df = pd.DataFrame({
             'x': embedded[:, 0],
@@ -225,38 +269,44 @@ def create_tsne_visualization_3d(df, corpus, lda_model, perplexity=30):
             hover_data=['title'],
             title=f'3D t-SNE Topic Clustering (Perplexity={perplex_val})'
         )
-        fig.update_layout(template='plotly')
+        if dark_mode:
+            fig.update_layout(**get_plotly_dark_layout())
+        else:
+            fig.update_layout(**get_plotly_light_layout())
         return fig
     except Exception as e:
         logger.error(f"Error creating 3D t-SNE: {e}", exc_info=True)
-        return go.Figure().update_layout(template='plotly', title=str(e))
+        fig = go.Figure()
+        if dark_mode:
+            fig.update_layout(**get_plotly_dark_layout(str(e)))
+        else:
+            fig.update_layout(**get_plotly_light_layout(str(e)))
+        return fig
 
-# NEW/CHANGED: we remove extreme outliers (above 95th percentile) and set a log scale
-def create_bubble_chart(df):
+def create_bubble_chart(df, dark_mode=False):
     """
     Bubble chart: doc length vs published date, sized by doc length,
-    colored by dominant_topic. We:
-      1) remove extremes above the 95th percentile,
-      2) apply log scale to y-axis for better readability,
-      3) set a max bubble size, e.g. size_max=30
+    colored by dominant_topic. Removes outliers & uses log scale.
     """
     try:
         if df is None or df.empty:
-            return go.Figure().update_layout(
-                template='plotly',
-                title='Bubble Chart Unavailable'
-            )
+            fig = go.Figure()
+            if dark_mode:
+                fig.update_layout(**get_plotly_dark_layout("Bubble Chart Unavailable"))
+            else:
+                fig.update_layout(**get_plotly_light_layout("Bubble Chart Unavailable"))
+            return fig
 
-        # 1) Remove outliers to avoid huge "live blog" overshadowing everything
         cut_off = df['doc_length'].quantile(0.95)
         filtered_df = df[df['doc_length'] <= cut_off].copy()
         if filtered_df.empty:
-            return go.Figure().update_layout(
-                template='plotly',
-                title='No Data after outlier removal'
-            )
+            fig = go.Figure()
+            if dark_mode:
+                fig.update_layout(**get_plotly_dark_layout("No Data after outlier removal"))
+            else:
+                fig.update_layout(**get_plotly_light_layout("No Data after outlier removal"))
+            return fig
 
-        # 2) Use the log scale
         fig = px.scatter(
             filtered_df,
             x='published',
@@ -268,16 +318,23 @@ def create_bubble_chart(df):
             title='Document Length Bubble Chart (w/ Outlier Removal & Log Scale)',
             log_y=True
         )
-        fig.update_layout(template='plotly')
+        if dark_mode:
+            fig.update_layout(**get_plotly_dark_layout())
+        else:
+            fig.update_layout(**get_plotly_light_layout())
         return fig
     except Exception as e:
         logger.error(f"Error creating bubble chart: {e}", exc_info=True)
-        return go.Figure().update_layout(template='plotly', title=str(e))
+        fig = go.Figure()
+        if dark_mode:
+            fig.update_layout(**get_plotly_dark_layout(str(e)))
+        else:
+            fig.update_layout(**get_plotly_light_layout(str(e)))
+        return fig
 
-def create_ngram_radar_chart(texts):
+def create_ngram_radar_chart(texts, dark_mode=False):
     """
-    Radar (sonar) chart of the most common bigrams/trigrams.
-    We'll pick the top 10 by frequency.
+    Radar (sonar) chart of the most common bigrams/trigrams (top 10).
     """
     try:
         ngram_counts = {}
@@ -287,12 +344,13 @@ def create_ngram_radar_chart(texts):
                     ngram_counts[tok] = ngram_counts.get(tok, 0) + 1
 
         if not ngram_counts:
-            return go.Figure().update_layout(
-                template='plotly',
-                title="No bigrams/trigrams found"
-            )
+            fig = go.Figure()
+            if dark_mode:
+                fig.update_layout(**get_plotly_dark_layout("No bigrams/trigrams found"))
+            else:
+                fig.update_layout(**get_plotly_light_layout("No bigrams/trigrams found"))
+            return fig
 
-        # Sort by frequency and limit to top 10
         sorted_ngrams = sorted(ngram_counts.items(), key=lambda x: x[1], reverse=True)
         top_ngrams = sorted_ngrams[:10]
         df_ngram = pd.DataFrame(top_ngrams, columns=["ngram", "count"])
@@ -305,42 +363,66 @@ def create_ngram_radar_chart(texts):
             title="Top Bigrams & Trigrams (Radar Chart)"
         )
         fig.update_traces(fill='toself')
-        fig.update_layout(template='plotly')
+        if dark_mode:
+            fig.update_layout(**get_plotly_dark_layout())
+        else:
+            fig.update_layout(**get_plotly_light_layout())
         return fig
     except Exception as e:
         logger.error(f"Error creating ngram radar chart: {e}", exc_info=True)
-        return go.Figure().update_layout(template='plotly', title=str(e))
+        fig = go.Figure()
+        if dark_mode:
+            fig.update_layout(**get_plotly_dark_layout(str(e)))
+        else:
+            fig.update_layout(**get_plotly_light_layout(str(e)))
+        return fig
 
 # ─────────────────────────────────────────────────────────────────────
-# Theming (Guardian-like)
+# Layout
 # ─────────────────────────────────────────────────────────────────────
-NAVY_BLUE = "#052962"
+# NEW/CHANGED: We'll add a small toggle switch in the NavBar to switch themes
+theme_toggle = dbc.Checklist(
+    options=[{"label": "Dark Mode", "value": 1}],
+    value=[1],  # default is dark mode = on
+    id="theme-toggle",
+    switch=True,
+    style={"marginLeft": "15px"}
+)
 
+# Instead of a static dark Navbar, let's dynamically color it and text too
 navbar = dbc.Navbar(
-    [
-        dbc.Row(
-            [
-                dbc.Col(html.Img(src="", height="30px"), width="auto"),
-                dbc.Col(
-                    dbc.NavbarBrand(
-                        "Guardian News Topic Explorer",
-                        className="ms-2",
-                        style={"color": "white", "fontWeight": "bold", "fontSize": "2rem"}
-                    )
-                )
-            ],
-            align="center",
-            className="g-0",
-        )
-    ],
-    color=NAVY_BLUE,
+    dbc.Container(
+        [
+            dbc.Row(
+                [
+                    dbc.Col(
+                        dbc.NavbarBrand("Guardian News Topic Explorer", id="app-title", className="ms-2"),
+                        width="auto",
+                    ),
+                ],
+                align="center",
+                className="g-0",
+            ),
+            dbc.Row(
+                [
+                    dbc.Col(theme_toggle, width="auto"),
+                ],
+                align="center",
+            )
+        ],
+        fluid=True
+    ),
+    id="navbar",
+    # We'll set color and text color from a callback
+    color="dark",
     dark=True,
     className="mb-2 px-3"
 )
 
+# We'll slightly modify the "About This App" card so it can adapt to dark background.
 explainer_card = dbc.Card(
     [
-        dbc.CardHeader("About This App", style={"backgroundColor": NAVY_BLUE, "color": "white"}),
+        dbc.CardHeader("About This App", id="about-header"),
         dbc.CardBody(
             [
                 html.P(
@@ -354,23 +436,24 @@ explainer_card = dbc.Card(
                             "Code & Readme available @ GitHub",
                             href="https://github.com/StephenJudeD/Guardian-News-RSS---LDA-Model/tree/main",
                             target="_blank",
-                            style={"color": "blue", "textDecoration": "underline"},
+                            style={"textDecoration": "underline"},
+                            id="github-link"
                         ),
                     ],
                     className="mb-0",
+                    id="about-text"
                 )
             ],
-            style={"backgroundColor": "white"},
+            id="about-body"
         ),
     ],
     className="mb-3",
-    style={"backgroundColor": "white"},
+    id="about-card"
 )
 
-# NEW/CHANGED: 3 Cards => 3 columns
 date_filter_card = dbc.Card(
     [
-        dbc.CardHeader("Select Date Range", style={"backgroundColor": NAVY_BLUE, "color": "white"}),
+        dbc.CardHeader("Select Date Range", id="date-header"),
         dbc.CardBody([
             dbc.RadioItems(
                 id='date-select-buttons',
@@ -381,56 +464,57 @@ date_filter_card = dbc.Card(
                 ],
                 value='last_week',
                 inline=True,
-                className="mb-3"
+                className="mb-3",
+                id="date-radio"
             ),
             dcc.DatePickerRange(
                 id='date-range',
                 start_date=(datetime.now() - timedelta(days=7)).date(),
                 end_date=datetime.now().date()
             )
-        ]),
+        ], id="date-body"),
     ],
     className="mb-2",
-    style={"backgroundColor": "white"}
+    id="date-card"
 )
 
 num_topics_card = dbc.Card(
     [
-        dbc.CardHeader("LDA: Number of Topics", style={"backgroundColor": NAVY_BLUE, "color": "white"}),
+        dbc.CardHeader("LDA: Number of Topics", id="num-topics-header"),
         dbc.CardBody([
             dcc.Slider(
                 id="num-topics-slider",
                 min=2,
                 max=15,
-                value=5,  # default
+                value=5,
                 step=1,
                 marks={i: str(i) for i in range(2, 16)},
                 tooltip={"placement": "bottom", "always_visible": True},
                 className="mb-2"
             ),
-        ]),
+        ], id="num-topics-body"),
     ],
     className="mb-2",
-    style={"backgroundColor": "white"}
+    id="num-topics-card"
 )
 
 tsne_controls_card = dbc.Card(
     [
-        dbc.CardHeader("t-SNE Perplexity", style={"backgroundColor": NAVY_BLUE, "color": "white"}),
+        dbc.CardHeader("t-SNE Perplexity", id="tsne-header"),
         dbc.CardBody([
             dcc.Slider(
                 id='tsne-perplexity-slider',
                 min=5,
                 max=50,
                 step=5,
-                value=30,  # default
+                value=30,
                 marks={i: str(i) for i in range(5, 51, 5)},
                 tooltip={"placement": "bottom", "always_visible": True},
             ),
-        ]),
+        ], id="tsne-body"),
     ],
     className="mb-2",
-    style={"backgroundColor": "white"}
+    id="tsne-card"
 )
 
 controls_row = dbc.Row(
@@ -444,87 +528,87 @@ controls_row = dbc.Row(
 
 topic_dist_card = dbc.Card(
     [
-        dbc.CardHeader("Topic Word Distributions (Top 10)", style={"backgroundColor": "white", "fontWeight": "bold"}),
+        dbc.CardHeader("Topic Word Distributions (Top 10)", id="topic-dist-header"),
         dbc.CardBody(
             dcc.Loading(
                 id="loading-topic-dist",
                 type="circle",
                 children=[dcc.Graph(id='topic-distribution', style={"height": "600px"})]
             ),
-            style={"backgroundColor": "white"}
+            id="topic-dist-body"
         )
     ],
     className="mb-3",
-    style={"backgroundColor": "white"}
+    id="topic-dist-card"
 )
 
 tsne_3d_card = dbc.Card(
     [
-        dbc.CardHeader("3D t-SNE Topic Clustering", style={"backgroundColor": "white", "fontWeight": "bold"}),
+        dbc.CardHeader("3D t-SNE Topic Clustering", id="tsne-3d-header"),
         dbc.CardBody(
             dcc.Loading(
                 id="loading-3d-tsne",
                 type="circle",
                 children=[dcc.Graph(id='tsne-plot', style={"height": "600px"})]
             ),
-            style={"backgroundColor": "white"}
+            id="tsne-3d-body"
         )
     ],
     className="mb-3",
-    style={"backgroundColor": "white"}
+    id="tsne-3d-card"
 )
 
 wordcloud_card = dbc.Card(
     [
-        dbc.CardHeader("Word Cloud", style={"backgroundColor": "white", "fontWeight": "bold"}),
+        dbc.CardHeader("Word Cloud", id="wordcloud-header"),
         dbc.CardBody(
             dcc.Loading(
                 id="loading-wordcloud",
                 type="circle",
                 children=[dcc.Graph(id='word-cloud', style={"height": "600px"})]
             ),
-            style={"backgroundColor": "white"}
+            id="wordcloud-body"
         )
     ],
     className="mb-3",
-    style={"backgroundColor": "white"}
+    id="wordcloud-card"
 )
 
 bubble_chart_card = dbc.Card(
     [
-        dbc.CardHeader("Document Length Bubble Chart", style={"backgroundColor": "white", "fontWeight": "bold"}),
+        dbc.CardHeader("Document Length Bubble Chart", id="bubble-header"),
         dbc.CardBody(
             dcc.Loading(
                 id="loading-bubble-chart",
                 type="circle",
                 children=[dcc.Graph(id='bubble-chart', style={"height": "600px"})]
             ),
-            style={"backgroundColor": "white"}
+            id="bubble-body"
         )
     ],
     className="mb-3",
-    style={"backgroundColor": "white"}
+    id="bubble-card"
 )
 
 bigrams_trigrams_card = dbc.Card(
     [
-        dbc.CardHeader("Bigrams & Trigrams (Radar Chart)", style={"backgroundColor": "white", "fontWeight": "bold"}),
+        dbc.CardHeader("Bigrams & Trigrams (Radar Chart)", id="bigrams-header"),
         dbc.CardBody(
             dcc.Loading(
                 id="loading-bigrams-trigrams",
                 type="circle",
                 children=[dcc.Graph(id='bigrams-trigrams', style={"height": "600px"})]
             ),
-            style={"backgroundColor": "white"}
+            id="bigrams-body"
         )
     ],
     className="mb-3",
-    style={"backgroundColor": "white"}
+    id="bigrams-card"
 )
 
 article_table_card = dbc.Card(
     [
-        dbc.CardHeader("Article Details", style={"backgroundColor": NAVY_BLUE, "color": "white"}),
+        dbc.CardHeader("Article Details", id="articles-header"),
         dbc.CardBody([
             dash_table.DataTable(
                 id='article-details',
@@ -534,40 +618,103 @@ article_table_card = dbc.Card(
                     {'name': 'Topics', 'id': 'topics'},
                 ],
                 style_table={'overflowX': 'auto'},
-                style_cell={
-                    'backgroundColor': 'white',
-                    'color': 'black',
-                    'textAlign': 'left',
-                    'whiteSpace': 'normal',
-                    'height': 'auto'
-                },
-                style_header={
-                    'backgroundColor': NAVY_BLUE,
-                    'color': 'white',
-                    'fontWeight': 'bold'
-                },
+                style_cell={'textAlign': 'left', 'whiteSpace': 'normal', 'height': 'auto'},
+                style_header={'fontWeight': 'bold'},
                 page_size=10
             )
-        ], style={"backgroundColor": "white"})
+        ], id="articles-body")
     ],
     className="mb-3",
-    style={"backgroundColor": "white"}
+    id="articles-card"
 )
 
-app.layout = dbc.Container([
-    navbar,
-    dbc.Row([dbc.Col(explainer_card, md=12)], className="g-3"),
-    controls_row,
-    dbc.Row([dbc.Col(topic_dist_card, md=12)], className="g-3"),
-    dbc.Row([dbc.Col(tsne_3d_card, md=12)], className="g-3"),
-    dbc.Row([dbc.Col(wordcloud_card, md=12)], className="g-3"),
-    dbc.Row([dbc.Col(bubble_chart_card, md=12)], className="g-3"),
-    dbc.Row([dbc.Col(bigrams_trigrams_card, md=12)], className="g-3"),
-    dbc.Row([dbc.Col(article_table_card, md=12)], className="g-3"),
-], fluid=True, style={"backgroundColor": "#f9f9f9"})
+app.layout = dbc.Container(
+    [
+        navbar,
+        dbc.Row([dbc.Col(explainer_card, md=12)], className="g-3"),
+        controls_row,
+        dbc.Row([dbc.Col(topic_dist_card, md=12)], className="g-3"),
+        dbc.Row([dbc.Col(tsne_3d_card, md=12)], className="g-3"),
+        dbc.Row([dbc.Col(wordcloud_card, md=12)], className="g-3"),
+        dbc.Row([dbc.Col(bubble_chart_card, md=12)], className="g-3"),
+        dbc.Row([dbc.Col(bigrams_trigrams_card, md=12)], className="g-3"),
+        dbc.Row([dbc.Col(article_table_card, md=12)], className="g-3"),
+    ],
+    fluid=True,
+    id="main-container"
+)
 
 # ─────────────────────────────────────────────────────────────────────
-# Callbacks
+# Theme Toggle Callbacks (NEW/CHANGED)
+# ─────────────────────────────────────────────────────────────────────
+@app.callback(
+    Output("main-container", "className"),
+    Output("navbar", "color"),
+    Output("navbar", "dark"),
+    Output("app-title", "style"),
+    Output("about-card", "style"),
+    Output("github-link", "style"),
+    [Output(c_id, "style") for c_id in [
+        "about-header", "about-body", "topic-dist-header", "topic-dist-body", "tsne-3d-header", "tsne-3d-body",
+        "wordcloud-header", "wordcloud-body", "bubble-header", "bubble-body", "bigrams-header", "bigrams-body",
+        "articles-header", "articles-body", "date-header", "date-body", "date-radio", "num-topics-header",
+        "num-topics-body", "tsne-header", "tsne-body"
+    ]],
+    Input("theme-toggle", "value")
+)
+def toggle_theme(theme_value):
+    """
+    If theme_value is [1], we are in "dark" mode. Otherwise "light".
+    We'll manually style components to match.
+    """
+    is_dark = (theme_value == [1])
+    # Navbar color/dark settings
+    navbar_color = "dark" if is_dark else "light"
+    navbar_dark = True if is_dark else False
+
+    title_style = {"color": "white"} if is_dark else {"color": "black"}
+    card_bg = "#303030" if is_dark else "white"
+    text_color = "white" if is_dark else "black"
+    link_color = "lightblue" if is_dark else "blue"
+
+    # Common style dict for card header/body
+    style_for_header = {
+        "backgroundColor": card_bg,
+        "color": text_color,
+        "fontWeight": "bold"
+    }
+    style_for_body = {
+        "backgroundColor": card_bg,
+        "color": text_color
+    }
+    style_for_link = {"color": link_color, "textDecoration": "underline"}
+
+    # Return: The container className, the navbar color/dark bool, the style dicts
+    return (
+        ("dark-mode" if is_dark else ""),  # main-container className
+        navbar_color,
+        navbar_dark,
+        title_style,
+        # about-card style
+        {"backgroundColor": card_bg},
+        # github-link style
+        style_for_link
+    ) + tuple(
+
+        # style for each item in the loop
+        # We'll alternate header/body pairs
+        [style_for_header if "header" in c_id else style_for_body
+         for c_id in [
+            "about-header", "about-body", "topic-dist-header", "topic-dist-body", "tsne-3d-header", "tsne-3d-body",
+            "wordcloud-header", "wordcloud-body", "bubble-header", "bubble-body", "bigrams-header", "bigrams-body",
+            "articles-header", "articles-body", "date-header", "date-body", "date-radio", "num-topics-header",
+            "num-topics-body", "tsne-header", "tsne-body"
+         ]]
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Date Range Callback
 # ─────────────────────────────────────────────────────────────────────
 @app.callback(
     [Output('date-range', 'start_date'),
@@ -575,9 +722,6 @@ app.layout = dbc.Container([
     Input('date-select-buttons', 'value')
 )
 def update_date_range(selected_range):
-    """
-    Sync date picker with radio items.
-    """
     end_date = datetime.now().date()
     if selected_range == 'last_day':
         start_date = end_date - timedelta(days=1)
@@ -589,6 +733,9 @@ def update_date_range(selected_range):
         start_date = end_date - timedelta(days=7)
     return start_date, end_date
 
+# ─────────────────────────────────────────────────────────────────────
+# Main Visualization Callback
+# ─────────────────────────────────────────────────────────────────────
 @app.callback(
     [
         Output('topic-distribution', 'figure'),
@@ -602,26 +749,33 @@ def update_date_range(selected_range):
         Input('date-range', 'start_date'),
         Input('date-range', 'end_date'),
         Input('num-topics-slider', 'value'),
-        Input('tsne-perplexity-slider', 'value')
+        Input('tsne-perplexity-slider', 'value'),
+        Input('theme-toggle', 'value')  # NEW/CHANGED: pass dark/light for figure theming
     ]
 )
-def update_visuals(start_date, end_date, num_topics, perplexity):
+def update_visuals(
+    start_date, end_date,
+    num_topics, perplexity,
+    theme_value
+):
     """
-    Main callback:
-     1) Train LDA on the entire set within the selected date range using 'num_topics'.
-     2) Build visuals & article table from the entire set (since we removed topic filter).
-     3) Create 3D t-SNE from the entire df/corpus, with an adjustable perplexity.
-     4) Show the bubble chart (now with outlier removal & log scale).
+    1) Train LDA on the entire set within the selected date range.
+    2) Build visuals & article table from the entire set.
+    3) Create 3D t-SNE with user-chosen perplexity.
+    4) Show bubble chart, etc.
+    5) Dark/Light mode for figures.
     """
     try:
         logger.info(f"update_visuals: {start_date} to {end_date}, num_topics={num_topics}, perplexity={perplexity}")
+        is_dark = (theme_value == [1])
 
         df, texts, dictionary, corpus, lda_model = process_articles(start_date, end_date, num_topics)
         if df is None or df.empty:
-            empty_fig = go.Figure().update_layout(template='plotly', title="No Data")
-            return empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, []
+            empty_dark = go.Figure().update_layout(**get_plotly_dark_layout("No Data"))
+            empty_light = go.Figure().update_layout(**get_plotly_light_layout("No Data"))
+            fig_empty = empty_dark if is_dark else empty_light
+            return fig_empty, fig_empty, fig_empty, fig_empty, fig_empty, []
 
-        # Build doc-level info: doc_length, dominant_topic
         doc_lengths = []
         doc_dominant_topics = []
         for i in df.index:
@@ -633,21 +787,27 @@ def update_visuals(start_date, end_date, num_topics, perplexity):
             else:
                 best_t = -1
             doc_dominant_topics.append(best_t)
+
         df["doc_length"] = doc_lengths
         df["dominant_topic"] = doc_dominant_topics
 
-        # 1) Topic Word Distribution (limit top words to 10 for each topic)
+        # 1) Topic Word Distributions
         words_list = []
         for t_id in range(num_topics):
             if 0 <= t_id < lda_model.num_topics:
                 top_pairs = lda_model.show_topic(t_id, topn=10)
                 for (w, prob) in top_pairs:
                     words_list.append((w, prob, t_id))
+
         if not words_list:
-            dist_fig = go.Figure().update_layout(template='plotly', title="No topics found")
+            fig_dist = go.Figure()
+            if is_dark:
+                fig_dist.update_layout(**get_plotly_dark_layout("No topics found"))
+            else:
+                fig_dist.update_layout(**get_plotly_light_layout("No topics found"))
         else:
             df_dist = pd.DataFrame(words_list, columns=["word", "prob", "topic"])
-            dist_fig = px.bar(
+            fig_dist = px.bar(
                 df_dist,
                 x="prob",
                 y="word",
@@ -655,29 +815,37 @@ def update_visuals(start_date, end_date, num_topics, perplexity):
                 orientation="h",
                 title="Topic Word Distributions (Top 10)"
             )
-            dist_fig.update_layout(template='plotly', yaxis={'categoryorder': 'total ascending'})
+            if is_dark:
+                fig_dist.update_layout(**get_plotly_dark_layout())
+            else:
+                fig_dist.update_layout(**get_plotly_light_layout())
 
-        # 2) Word Cloud (take topic 0 if it exists)
-        wc_fig = go.Figure().update_layout(template='plotly', title="Word Cloud N/A")
+        # 2) Word Cloud
+        fig_wc = go.Figure()
         if num_topics > 0 and lda_model.num_topics > 0:
-            wc_fig = create_word_cloud(lda_model.show_topic(0, topn=30))
+            fig_wc = create_word_cloud(lda_model.show_topic(0, topn=30), dark_mode=is_dark)
+        else:
+            if is_dark:
+                fig_wc.update_layout(**get_plotly_dark_layout("Word Cloud N/A"))
+            else:
+                fig_wc.update_layout(**get_plotly_light_layout("Word Cloud N/A"))
 
         # 3) 3D t-SNE
-        tsne_fig = create_tsne_visualization_3d(df, corpus, lda_model, perplexity)
+        fig_tsne = create_tsne_visualization_3d(df, corpus, lda_model, perplexity, dark_mode=is_dark)
 
         # 4) Bubble Chart
-        bubble_fig = create_bubble_chart(df)
+        fig_bubble = create_bubble_chart(df, dark_mode=is_dark)
 
         # 5) Radar chart for Bigrams & Trigrams
-        ngram_fig = create_ngram_radar_chart(texts)
+        fig_ngram = create_ngram_radar_chart(texts, dark_mode=is_dark)
 
-        # 6) Article Table data (just show each doc’s top topics in descending probability)
+        # 6) Article Table data
         table_data = []
         for i in df.index:
             doc_topics = lda_model.get_document_topics(corpus[i])
             these_topics = [
-                f"Topic {tid}: {w:.3f}" for (tid, w)
-                in sorted(doc_topics, key=lambda x: x[1], reverse=True)
+                f"Topic {tid}: {w:.3f}"
+                for (tid, w) in sorted(doc_topics, key=lambda x: x[1], reverse=True)
             ]
             table_data.append({
                 'title': df.at[i, 'title'],
@@ -685,12 +853,17 @@ def update_visuals(start_date, end_date, num_topics, perplexity):
                 'topics': '\n'.join(these_topics)
             })
 
-        return dist_fig, wc_fig, tsne_fig, bubble_fig, ngram_fig, table_data
+        return fig_dist, fig_wc, fig_tsne, fig_bubble, fig_ngram, table_data
 
     except Exception as e:
         logger.error(f"update_visuals error: {e}", exc_info=True)
-        empty_fig = go.Figure().update_layout(template='plotly', title=f"Error: {e}")
-        return empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, []
+        fig_err = go.Figure()
+        is_dark = (theme_value == [1])
+        if is_dark:
+            fig_err.update_layout(**get_plotly_dark_layout(f"Error: {e}"))
+        else:
+            fig_err.update_layout(**get_plotly_light_layout(f"Error: {e}"))
+        return fig_err, fig_err, fig_err, fig_err, fig_err, []
 
 if __name__ == "__main__":
     port = int(os.getenv('PORT', 8050))
