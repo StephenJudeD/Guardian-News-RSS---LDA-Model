@@ -358,7 +358,7 @@ guardian_theme_css = dcc.Markdown('''
     .guardian-control{background:white;border:1px solid var(--guardian-border);padding:15px;border-radius:2px;}
     .guardian-container{max-width:1200px;margin:0 auto;padding:20px;}
 </style>
-''', dangerously_allow_html=True))
+''', dangerously_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────
 # Layout
