@@ -258,10 +258,11 @@ def create_bubble_chart(df):
         logger.error(f"Error creating bubble chart: {e}", exc_info=True)
         return go.Figure().update_layout(template='plotly', title=str(e))
 
-def create_ngram_bar_chart(texts):
+# NEW/CHANGED: create_ngram_radar_chart instead of bar chart
+def create_ngram_radar_chart(texts):
     """
-    Bar chart of the most common bigrams/trigrams (indicated by underscores).
-    We'll pick the top 15 by frequency.
+    Radar (sonar) chart of the most common bigrams/trigrams.
+    We'll pick the top 10 by frequency.
     """
     try:
         ngram_counts = {}
@@ -276,21 +277,25 @@ def create_ngram_bar_chart(texts):
                 title="No bigrams/trigrams found"
             )
 
+        # Sort by frequency and limit to top 10
         sorted_ngrams = sorted(ngram_counts.items(), key=lambda x: x[1], reverse=True)
-        top_ngrams = sorted_ngrams[:15]
+        top_ngrams = sorted_ngrams[:10]
         df_ngram = pd.DataFrame(top_ngrams, columns=["ngram", "count"])
 
-        fig = px.bar(
+        # A radar chart in Plotly can be done with "line_polar" or "scatterpolar"
+        fig = px.line_polar(
             df_ngram,
-            x="count",
-            y="ngram",
-            orientation="h",
-            title="Top Bigrams & Trigrams"
+            r="count",
+            theta="ngram",
+            line_close=True,
+            title="Top Bigrams & Trigrams (Radar Chart)"
         )
-        fig.update_layout(template='plotly', yaxis={"categoryorder": "total ascending"})
+        # Fill the area for a more ‘sonar-like’ appearance
+        fig.update_traces(fill='toself')
+        fig.update_layout(template='plotly')
         return fig
     except Exception as e:
-        logger.error(f"Error creating ngram bar chart: {e}", exc_info=True)
+        logger.error(f"Error creating ngram radar chart: {e}", exc_info=True)
         return go.Figure().update_layout(template='plotly', title=str(e))
 
 # ─────────────────────────────────────────────────────────────────────
@@ -320,9 +325,6 @@ navbar = dbc.Navbar(
     className="mb-2 px-3"
 )
 
-# ─────────────────────────────────────────────────────────────────────
-# About This App (Explainer)
-# ─────────────────────────────────────────────────────────────────────
 explainer_card = dbc.Card(
     [
         dbc.CardHeader("About This App", style={"backgroundColor": NAVY_BLUE, "color": "white"}),
@@ -352,7 +354,7 @@ explainer_card = dbc.Card(
     style={"backgroundColor": "white"},
 )
 
-# Filters
+# NEW/CHANGED: Radio Items for Last Day, Last 3 Days, Last Week
 date_filter_card = dbc.Card(
     [
         dbc.CardHeader("Select Date Range", style={"backgroundColor": NAVY_BLUE, "color": "white"}),
@@ -361,16 +363,16 @@ date_filter_card = dbc.Card(
                 id='date-select-buttons',
                 options=[
                     {'label': 'Last Day', 'value': 'last_day'},
+                    {'label': 'Last 3 Days', 'value': 'last_three'},
                     {'label': 'Last Week', 'value': 'last_week'},
-                    {'label': 'Last Two Weeks', 'value': 'last_two_weeks'},
                 ],
-                value='last_two_weeks',
+                value='last_week',
                 inline=True,
                 className="mb-3"
             ),
             dcc.DatePickerRange(
                 id='date-range',
-                start_date=(datetime.now() - timedelta(days=14)).date(),
+                start_date=(datetime.now() - timedelta(days=7)).date(),
                 end_date=datetime.now().date(),
                 className="mb-2"
             )
@@ -501,9 +503,10 @@ bubble_chart_card = dbc.Card(
     style={"backgroundColor": "white"}
 )
 
+# NEW/CHANGED: "Radar Chart" text instead of "Bigrams & Trigrams"
 bigrams_trigrams_card = dbc.Card(
     [
-        dbc.CardHeader("Bigrams & Trigrams", style={"backgroundColor": "white", "fontWeight": "bold"}),
+        dbc.CardHeader("Bigrams & Trigrams (Radar Chart)", style={"backgroundColor": "white", "fontWeight": "bold"}),
         dbc.CardBody(
             dcc.Loading(
                 id="loading-bigrams-trigrams",
@@ -574,14 +577,15 @@ def update_date_range(selected_range):
     Sync date picker with radio items.
     """
     end_date = datetime.now().date()
+    # NEW/CHANGED: Radio logic for Last Day, Last Three Days, Last Week
     if selected_range == 'last_day':
         start_date = end_date - timedelta(days=1)
+    elif selected_range == 'last_three':
+        start_date = end_date - timedelta(days=3)
     elif selected_range == 'last_week':
         start_date = end_date - timedelta(days=7)
-    elif selected_range == 'last_two_weeks':
-        start_date = end_date - timedelta(days=14)
     else:
-        start_date = end_date - timedelta(days=14)
+        start_date = end_date - timedelta(days=7)
     return start_date, end_date
 
 @app.callback(
@@ -652,11 +656,11 @@ def update_visuals(start_date, end_date, selected_topics, num_topics, perplexity
             filtered_texts.append(texts[i])
             filtered_corpus.append(corpus[i])
 
-        # 1) Topic Word Distribution (for all selected topics)
+        # 1) Topic Word Distribution (limit top words to 10 for each topic)
         words_list = []
         for t_id in selected_topics:
             if 0 <= t_id < lda_model.num_topics:
-                top_pairs = lda_model.show_topic(t_id, topn=20)
+                top_pairs = lda_model.show_topic(t_id, topn=10)  # NEW/CHANGED: top 10
                 for (w, prob) in top_pairs:
                     words_list.append((w, prob, t_id))
         if not words_list:
@@ -669,13 +673,13 @@ def update_visuals(start_date, end_date, selected_topics, num_topics, perplexity
                 y="word",
                 color="topic",
                 orientation="h",
-                title="Topic Word Distributions"
+                title="Topic Word Distributions (Top 10)"
             )
             dist_fig.update_layout(template='plotly', yaxis={'categoryorder': 'total ascending'})
 
         # 2) Word Cloud (take the first selected topic)
         first_topic = selected_topics[0]
-        if first_topic < lda_model.num_topics and first_topic >= 0:
+        if 0 <= first_topic < lda_model.num_topics:
             wc_fig = create_word_cloud(lda_model.show_topic(first_topic, topn=30))
         else:
             wc_fig = go.Figure().update_layout(template='plotly', title="Word Cloud N/A")
@@ -686,8 +690,8 @@ def update_visuals(start_date, end_date, selected_topics, num_topics, perplexity
         # 4) Bubble Chart (use filtered_df/corpus)
         bubble_fig = create_bubble_chart(filtered_df)
 
-        # 5) Bigrams & Trigrams (use filtered texts)
-        ngram_fig = create_ngram_bar_chart(filtered_texts)
+        # 5) Radar chart for Bigrams & Trigrams (use filtered texts)
+        ngram_fig = create_ngram_radar_chart(filtered_texts)
 
         # 6) Article Table data (only for the filtered set)
         table_data = []
