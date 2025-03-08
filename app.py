@@ -42,8 +42,8 @@ CUSTOM_STOP_WORDS = {
     'told', 'reuters', 'guardian', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
     'week', 'month', 'us', 'people', 'government', 'could', 'will', 'may', 'trump', 'published', 'article', 'editor',
     'nt', 'dont', 'doesnt', 'cant', 'couldnt', 'shouldnt', 'last', 'well', 'still', 'price',
-    # Add as many extra items as you want:
-    'breaking', 'update', 'live', 'say'
+    # Added more for demonstration:
+    'breaking', 'update', 'live'
 }
 
 # ─────────────────────────────────────────────────────────────────────
@@ -67,14 +67,12 @@ guardian = GuardianFetcher(GUARDIAN_API_KEY)
 # ─────────────────────────────────────────────────────────────────────
 # Dash Setup
 # ─────────────────────────────────────────────────────────────────────
-
-# By default, let's load a dark theme (DARKLY) and let the user toggle to a light theme.
+# Default is dark theme, user can toggle to light theme
 external_stylesheets = [dbc.themes.DARKLY]
 app = Dash(__name__, external_stylesheets=external_stylesheets)
 server = app.server
 app.config.suppress_callback_exceptions = True
 
-# We can store the theme names in a dictionary for convenience if needed later
 THEME_URLS = {
     "dark": dbc.themes.DARKLY,
     "light": dbc.themes.BOOTSTRAP
@@ -84,21 +82,23 @@ THEME_URLS = {
 # Dark/Light Plotly Layout Helpers
 # ─────────────────────────────────────────────────────────────────────
 def get_plotly_dark_layout(fig_title=""):
-    """Return a default layout for dark-mode figures."""
+    """Return a default layout for dark-mode figures with grid lines, reduced margins."""
     return dict(
         paper_bgcolor="#303030",
         plot_bgcolor="#303030",
         font_color="white",
-        title=fig_title
+        title=fig_title,
+        margin=dict(l=20, r=20, t=60, b=40),  # NEW/CHANGED: reduce margins
     )
 
 def get_plotly_light_layout(fig_title=""):
-    """Return a default layout for light-mode figures."""
+    """Return a default layout for light-mode figures with grid lines, reduced margins."""
     return dict(
         paper_bgcolor="white",
         plot_bgcolor="white",
         font_color="black",
-        title=fig_title
+        title=fig_title,
+        margin=dict(l=20, r=20, t=60, b=40),  # NEW/CHANGED: reduce margins
     )
 
 # ─────────────────────────────────────────────────────────────────────
@@ -184,6 +184,13 @@ def process_articles(start_date, end_date, num_topics=5):
 # ─────────────────────────────────────────────────────────────────────
 # Visualization Helpers
 # ─────────────────────────────────────────────────────────────────────
+
+def setup_axes_grid(fig, dark_mode=False):
+    """ # NEW/CHANGED: Helper function to enable grid lines on x/y axes. """
+    grid_color = "#666" if dark_mode else "#ccc"
+    fig.update_xaxes(showgrid=True, gridcolor=grid_color)
+    fig.update_yaxes(showgrid=True, gridcolor=grid_color)
+
 def create_word_cloud(topic_words, dark_mode=False):
     """
     Create a word cloud from LDA topic-word pairs.
@@ -193,10 +200,11 @@ def create_word_cloud(topic_words, dark_mode=False):
         freq_dict = dict(topic_words)
         bg = "black" if dark_mode else "white"
 
+        # NEW/CHANGED: Increase size for a bigger word cloud
         wc = WordCloud(
             background_color=bg,
-            width=800,
-            height=400,
+            width=1000,   # bigger width
+            height=550,   # bigger height
             colormap='viridis'
         ).generate_from_frequencies(freq_dict)
 
@@ -274,6 +282,10 @@ def create_tsne_visualization_3d(df, corpus, lda_model, perplexity=30, dark_mode
             fig.update_layout(**get_plotly_dark_layout())
         else:
             fig.update_layout(**get_plotly_light_layout())
+
+        # NEW/CHANGED: add grid lines
+        setup_axes_grid(fig, dark_mode=dark_mode)
+
         return fig
     except Exception as e:
         logger.error(f"Error creating 3D t-SNE: {e}", exc_info=True)
@@ -323,6 +335,10 @@ def create_bubble_chart(df, dark_mode=False):
             fig.update_layout(**get_plotly_dark_layout())
         else:
             fig.update_layout(**get_plotly_light_layout())
+
+        # NEW/CHANGED: enable grid lines
+        setup_axes_grid(fig, dark_mode=dark_mode)
+
         return fig
     except Exception as e:
         logger.error(f"Error creating bubble chart: {e}", exc_info=True)
@@ -369,6 +385,8 @@ def create_ngram_radar_chart(texts, dark_mode=False):
             fig.update_layout(**get_plotly_dark_layout())
         else:
             fig.update_layout(**get_plotly_light_layout())
+
+        # Radar charts don’t show grid lines in the same way, but you can experiment with radial axes
         return fig
     except Exception as e:
         logger.error(f"Error creating ngram radar chart: {e}", exc_info=True)
@@ -383,7 +401,7 @@ def create_ngram_radar_chart(texts, dark_mode=False):
 # Layout
 # ─────────────────────────────────────────────────────────────────────
 
-# Toggle switch in the NavBar to switch themes
+# Theme toggle
 theme_toggle = dbc.Checklist(
     options=[{"label": "Dark Mode", "value": 1}],
     value=[1],  # default is dark mode
@@ -465,7 +483,7 @@ date_filter_card = dbc.Card(
                 value='last_week',
                 inline=True,
                 className="mb-3"
-                # Removed id="date-radio" to avoid repeated ID
+                # (Removed duplicate id to avoid error)
             ),
             dcc.DatePickerRange(
                 id='date-range',
@@ -560,7 +578,7 @@ tsne_3d_card = dbc.Card(
 
 wordcloud_card = dbc.Card(
     [
-        dbc.CardHeader("Word Cloud", id="wordcloud-header"),
+        dbc.CardHeader("Topic Word Cloud", id="wordcloud-header"),  # NEW/CHANGED: clearer label
         dbc.CardBody(
             dcc.Loading(
                 id="loading-wordcloud",
@@ -655,10 +673,10 @@ app.layout = dbc.Container(
     Output("about-card", "style"),
     Output("github-link", "style"),
     [Output(c_id, "style") for c_id in [
-        "about-header", "about-body", "topic-dist-header", "topic-dist-body", 
-        "tsne-3d-header", "tsne-3d-body", "wordcloud-header", "wordcloud-body", 
+        "about-header", "about-body", "topic-dist-header", "topic-dist-body",
+        "tsne-3d-header", "tsne-3d-body", "wordcloud-header", "wordcloud-body",
         "bubble-header", "bubble-body", "bigrams-header", "bigrams-body",
-        "articles-header", "articles-body", "date-header", "date-body", 
+        "articles-header", "articles-body", "date-header", "date-body",
         "num-topics-header", "num-topics-body", "tsne-header", "tsne-body"
     ]],
     Input("theme-toggle", "value")
@@ -782,7 +800,7 @@ def update_visuals(start_date, end_date, num_topics, perplexity, theme_value):
         df["doc_length"] = doc_lengths
         df["dominant_topic"] = doc_dominant_topics
 
-        # Topic Word Dist
+        # Topic Word Distribution
         words_list = []
         for t_id in range(num_topics):
             if 0 <= t_id < lda_model.num_topics:
@@ -811,7 +829,10 @@ def update_visuals(start_date, end_date, num_topics, perplexity, theme_value):
             else:
                 fig_dist.update_layout(**get_plotly_light_layout())
 
-        # Word Cloud
+            # NEW/CHANGED: show grid lines, reduce empty space
+            setup_axes_grid(fig_dist, dark_mode=is_dark)
+
+        # Word Cloud (Topic 0)
         fig_wc = go.Figure()
         if num_topics > 0 and lda_model.num_topics > 0:
             fig_wc = create_word_cloud(lda_model.show_topic(0, topn=30), dark_mode=is_dark)
@@ -827,7 +848,7 @@ def update_visuals(start_date, end_date, num_topics, perplexity, theme_value):
         # Bubble Chart
         fig_bubble = create_bubble_chart(df, dark_mode=is_dark)
 
-        # Bigrams & Trigrams Radar
+        # Radar Chart for Bigrams & Trigrams
         fig_ngram = create_ngram_radar_chart(texts, dark_mode=is_dark)
 
         # Article Table
@@ -848,7 +869,7 @@ def update_visuals(start_date, end_date, num_topics, perplexity, theme_value):
 
     except Exception as e:
         logger.error(f"update_visuals error: {e}", exc_info=True)
-        # Show error fig
+        # Show error figs
         fig_err = go.Figure()
         is_dark = (theme_value == [1])
         if is_dark:
