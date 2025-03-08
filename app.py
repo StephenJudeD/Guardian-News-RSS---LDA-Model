@@ -346,72 +346,19 @@ def create_ngram_radar_chart(texts):
 # ─────────────────────────────────────────────────────────────────────
 # Guardian Theme CSS
 # ─────────────────────────────────────────────────────────────────────
-guardian_theme_css = html.Div([
-    html.Div(
-        **{
-            'dangerously_set_inner_html': {
-                '__html': '''
-                    <style>
-                        :root {
-                            --guardian-blue: #005689;
-                            --guardian-blue-light: #00b2ff;
-                            --guardian-red: #c70000;
-                            --guardian-yellow: #ffbb00;
-                            --guardian-bg: #f6f6f6;
-                            --guardian-border: #dcdcdc;
-                        }
-                    
-                    body {
-                        font-family: "Guardian Egyptian Web", Georgia, serif;
-                        background-color: var(--guardian-bg);
-                    }
-                    
-                    .guardian-navbar {
-                        background-color: var(--guardian-blue);
-                        color: white;
-                        padding: 10px 0;
-                        border-bottom: 2px solid var(--guardian-yellow);
-                    }
-                    
-                    .guardian-card {
-                        border: 1px solid var(--guardian-border);
-                        border-radius: 2px;
-                        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-                        background-color: white;
-                        margin-bottom: 20px;
-                    }
-                    
-                    .guardian-header {
-                        background-color: var(--guardian-blue);
-                        color: white;
-                        font-weight: bold;
-                        padding: 12px 15px;
-                        border-bottom: 2px solid var(--guardian-yellow);
-                    }
-                    
-                    .guardian-card-body {
-                        padding: 20px;
-                        background-color: white;
-                    }
-                    
-                    .guardian-control {
-                        background-color: white;
-                        border: 1px solid var(--guardian-border);
-                        padding: 15px;
-                        border-radius: 2px;
-                    }
-                    
-                    .guardian-container {
-                        max-width: 1200px;
-                        margin: 0 auto;
-                        padding: 20px;
-                    }
-                </style>
-            '''
-            }
-        }
-    )
-])
+
+guardian_theme_css = dcc.Markdown('''
+<style>
+    :root {--guardian-blue:#005689;--guardian-blue-light:#00b2ff;--guardian-red:#c70000;--guardian-yellow:#ffbb00;--guardian-bg:#f6f6f6;--guardian-border:#dcdcdc;}
+    body{font-family:"Guardian Egyptian Web",Georgia,serif;background:var(--guardian-bg);}
+    .guardian-navbar{background:var(--guardian-blue);color:white;padding:10px 0;border-bottom:2px solid var(--guardian-yellow);}
+    .guardian-card{border:1px solid var(--guardian-border);border-radius:2px;box-shadow:0 1px 3px rgba(0,0,0,0.1);background:white;margin-bottom:20px;}
+    .guardian-header{background:var(--guardian-blue);color:white;font-weight:bold;padding:12px 15px;border-bottom:2px solid var(--guardian-yellow);}
+    .guardian-card-body{padding:20px;background:white;}
+    .guardian-control{background:white;border:1px solid var(--guardian-border);padding:15px;border-radius:2px;}
+    .guardian-container{max-width:1200px;margin:0 auto;padding:20px;}
+</style>
+''', dangerously_allow_html=True))
 
 # ─────────────────────────────────────────────────────────────────────
 # Layout
