@@ -408,6 +408,7 @@ guardian_theme_css = html.Div([
                     }
                 </style>
             '''
+            }
         }
     )
 ])
