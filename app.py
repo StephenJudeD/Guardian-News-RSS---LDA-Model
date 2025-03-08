@@ -801,5 +801,5 @@ def update_visuals(start_date, end_date, num_topics, perplexity):
         return fig_err, fig_err, fig_err, fig_err, fig_err, []
 
 if __name__ == "__main__":
-    port = int(os.getenv('PORT', 8050))
-    app.run_server(debug=True, port=port)
+    port = int(os.environ.get('PORT', 8050))
+    app.run_server(host='0.0.0.0', port=port, debug=False)
