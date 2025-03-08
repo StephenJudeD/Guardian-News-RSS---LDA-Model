@@ -375,7 +375,7 @@ navbar = dbc.Navbar(
                         width="auto",
                     ),
                     dbc.Col(
-                        html.H3("Guardian News Topic Explorer", className="mb-0 text-white"),
+                        html.H1("Guardian News Topic Explorer", className="mb-0 text-white"),
                         width="auto",
                     ),
                 ],
