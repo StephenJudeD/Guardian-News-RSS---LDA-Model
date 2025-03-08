@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import dash
 from dash import Dash, html, dcc, Input, Output, dash_table, State
 import dash_bootstrap_components as dbc
@@ -32,7 +34,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────────────────────────────
-# Expanded Stop Words (NEW/CHANGED: added more)
+# Expanded Stop Words
 # ─────────────────────────────────────────────────────────────────────
 CUSTOM_STOP_WORDS = {
     'says', 'said', 'would', 'also', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
@@ -40,7 +42,7 @@ CUSTOM_STOP_WORDS = {
     'told', 'reuters', 'guardian', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
     'week', 'month', 'us', 'people', 'government', 'could', 'will', 'may', 'trump', 'published', 'article', 'editor',
     'nt', 'dont', 'doesnt', 'cant', 'couldnt', 'shouldnt', 'last', 'well', 'still', 'price',
-    # Added more for demonstration:
+    # Add as many extra items as you want:
     'breaking', 'update', 'live', 'say'
 }
 
@@ -65,21 +67,21 @@ guardian = GuardianFetcher(GUARDIAN_API_KEY)
 # ─────────────────────────────────────────────────────────────────────
 # Dash Setup
 # ─────────────────────────────────────────────────────────────────────
-# NEW/CHANGED: By default, let's load a dark theme (DARKLY) 
-# and let the user toggle to a light theme if they choose.
-external_stylesheets = [dbc.themes.DARKLY]  # default dark
+
+# By default, let's load a dark theme (DARKLY) and let the user toggle to a light theme.
+external_stylesheets = [dbc.themes.DARKLY]
 app = Dash(__name__, external_stylesheets=external_stylesheets)
 server = app.server
 app.config.suppress_callback_exceptions = True
 
-# We will store the theme names in a dictionary
+# We can store the theme names in a dictionary for convenience if needed later
 THEME_URLS = {
     "dark": dbc.themes.DARKLY,
     "light": dbc.themes.BOOTSTRAP
 }
 
 # ─────────────────────────────────────────────────────────────────────
-# Dark/Light Plotly Themes
+# Dark/Light Plotly Layout Helpers
 # ─────────────────────────────────────────────────────────────────────
 def get_plotly_dark_layout(fig_title=""):
     """Return a default layout for dark-mode figures."""
@@ -190,7 +192,6 @@ def create_word_cloud(topic_words, dark_mode=False):
     try:
         freq_dict = dict(topic_words)
         bg = "black" if dark_mode else "white"
-        font_color = "white" if dark_mode else "black"
 
         wc = WordCloud(
             background_color=bg,
@@ -200,7 +201,7 @@ def create_word_cloud(topic_words, dark_mode=False):
         ).generate_from_frequencies(freq_dict)
 
         fig = px.imshow(wc)
-        # If dark mode, tweak layout
+
         if dark_mode:
             fig.update_layout(**get_plotly_dark_layout("Topic Word Cloud"))
         else:
@@ -363,6 +364,7 @@ def create_ngram_radar_chart(texts, dark_mode=False):
             title="Top Bigrams & Trigrams (Radar Chart)"
         )
         fig.update_traces(fill='toself')
+
         if dark_mode:
             fig.update_layout(**get_plotly_dark_layout())
         else:
@@ -380,16 +382,16 @@ def create_ngram_radar_chart(texts, dark_mode=False):
 # ─────────────────────────────────────────────────────────────────────
 # Layout
 # ─────────────────────────────────────────────────────────────────────
-# NEW/CHANGED: We'll add a small toggle switch in the NavBar to switch themes
+
+# Toggle switch in the NavBar to switch themes
 theme_toggle = dbc.Checklist(
     options=[{"label": "Dark Mode", "value": 1}],
-    value=[1],  # default is dark mode = on
+    value=[1],  # default is dark mode
     id="theme-toggle",
     switch=True,
     style={"marginLeft": "15px"}
 )
 
-# Instead of a static dark Navbar, let's dynamically color it and text too
 navbar = dbc.Navbar(
     dbc.Container(
         [
@@ -413,13 +415,11 @@ navbar = dbc.Navbar(
         fluid=True
     ),
     id="navbar",
-    # We'll set color and text color from a callback
     color="dark",
     dark=True,
     className="mb-2 px-3"
 )
 
-# We'll slightly modify the "About This App" card so it can adapt to dark background.
 explainer_card = dbc.Card(
     [
         dbc.CardHeader("About This App", id="about-header"),
@@ -464,8 +464,8 @@ date_filter_card = dbc.Card(
                 ],
                 value='last_week',
                 inline=True,
-                className="mb-3",
-                id="date-radio"
+                className="mb-3"
+                # Removed id="date-radio" to avoid repeated ID
             ),
             dcc.DatePickerRange(
                 id='date-range',
@@ -645,7 +645,7 @@ app.layout = dbc.Container(
 )
 
 # ─────────────────────────────────────────────────────────────────────
-# Theme Toggle Callbacks (NEW/CHANGED)
+# Theme Toggle Callback
 # ─────────────────────────────────────────────────────────────────────
 @app.callback(
     Output("main-container", "className"),
@@ -655,20 +655,20 @@ app.layout = dbc.Container(
     Output("about-card", "style"),
     Output("github-link", "style"),
     [Output(c_id, "style") for c_id in [
-        "about-header", "about-body", "topic-dist-header", "topic-dist-body", "tsne-3d-header", "tsne-3d-body",
-        "wordcloud-header", "wordcloud-body", "bubble-header", "bubble-body", "bigrams-header", "bigrams-body",
-        "articles-header", "articles-body", "date-header", "date-body", "date-radio", "num-topics-header",
-        "num-topics-body", "tsne-header", "tsne-body"
+        "about-header", "about-body", "topic-dist-header", "topic-dist-body", 
+        "tsne-3d-header", "tsne-3d-body", "wordcloud-header", "wordcloud-body", 
+        "bubble-header", "bubble-body", "bigrams-header", "bigrams-body",
+        "articles-header", "articles-body", "date-header", "date-body", 
+        "num-topics-header", "num-topics-body", "tsne-header", "tsne-body"
     ]],
     Input("theme-toggle", "value")
 )
 def toggle_theme(theme_value):
     """
-    If theme_value is [1], we are in "dark" mode. Otherwise "light".
-    We'll manually style components to match.
+    If theme_value is [1], we use dark mode. Otherwise light mode.
+    We'll manually style components to match the chosen mode.
     """
     is_dark = (theme_value == [1])
-    # Navbar color/dark settings
     navbar_color = "dark" if is_dark else "light"
     navbar_dark = True if is_dark else False
 
@@ -689,29 +689,23 @@ def toggle_theme(theme_value):
     }
     style_for_link = {"color": link_color, "textDecoration": "underline"}
 
-    # Return: The container className, the navbar color/dark bool, the style dicts
     return (
         ("dark-mode" if is_dark else ""),  # main-container className
         navbar_color,
         navbar_dark,
         title_style,
-        # about-card style
-        {"backgroundColor": card_bg},
-        # github-link style
+        {"backgroundColor": card_bg},  # about-card style
         style_for_link
     ) + tuple(
-
-        # style for each item in the loop
-        # We'll alternate header/body pairs
-        [style_for_header if "header" in c_id else style_for_body
-         for c_id in [
-            "about-header", "about-body", "topic-dist-header", "topic-dist-body", "tsne-3d-header", "tsne-3d-body",
-            "wordcloud-header", "wordcloud-body", "bubble-header", "bubble-body", "bigrams-header", "bigrams-body",
-            "articles-header", "articles-body", "date-header", "date-body", "date-radio", "num-topics-header",
-            "num-topics-body", "tsne-header", "tsne-body"
-         ]]
+        style_for_header if "header" in c_id else style_for_body
+        for c_id in [
+            "about-header", "about-body", "topic-dist-header", "topic-dist-body",
+            "tsne-3d-header", "tsne-3d-body", "wordcloud-header", "wordcloud-body",
+            "bubble-header", "bubble-body", "bigrams-header", "bigrams-body",
+            "articles-header", "articles-body", "date-header", "date-body",
+            "num-topics-header", "num-topics-body", "tsne-header", "tsne-body"
+        ]
     )
-
 
 # ─────────────────────────────────────────────────────────────────────
 # Date Range Callback
@@ -750,14 +744,10 @@ def update_date_range(selected_range):
         Input('date-range', 'end_date'),
         Input('num-topics-slider', 'value'),
         Input('tsne-perplexity-slider', 'value'),
-        Input('theme-toggle', 'value')  # NEW/CHANGED: pass dark/light for figure theming
+        Input('theme-toggle', 'value')
     ]
 )
-def update_visuals(
-    start_date, end_date,
-    num_topics, perplexity,
-    theme_value
-):
+def update_visuals(start_date, end_date, num_topics, perplexity, theme_value):
     """
     1) Train LDA on the entire set within the selected date range.
     2) Build visuals & article table from the entire set.
@@ -771,9 +761,10 @@ def update_visuals(
 
         df, texts, dictionary, corpus, lda_model = process_articles(start_date, end_date, num_topics)
         if df is None or df.empty:
-            empty_dark = go.Figure().update_layout(**get_plotly_dark_layout("No Data"))
-            empty_light = go.Figure().update_layout(**get_plotly_light_layout("No Data"))
-            fig_empty = empty_dark if is_dark else empty_light
+            # Return empty figs
+            fig_empty_dark = go.Figure().update_layout(**get_plotly_dark_layout("No Data"))
+            fig_empty_light = go.Figure().update_layout(**get_plotly_light_layout("No Data"))
+            fig_empty = fig_empty_dark if is_dark else fig_empty_light
             return fig_empty, fig_empty, fig_empty, fig_empty, fig_empty, []
 
         doc_lengths = []
@@ -791,7 +782,7 @@ def update_visuals(
         df["doc_length"] = doc_lengths
         df["dominant_topic"] = doc_dominant_topics
 
-        # 1) Topic Word Distributions
+        # Topic Word Dist
         words_list = []
         for t_id in range(num_topics):
             if 0 <= t_id < lda_model.num_topics:
@@ -820,7 +811,7 @@ def update_visuals(
             else:
                 fig_dist.update_layout(**get_plotly_light_layout())
 
-        # 2) Word Cloud
+        # Word Cloud
         fig_wc = go.Figure()
         if num_topics > 0 and lda_model.num_topics > 0:
             fig_wc = create_word_cloud(lda_model.show_topic(0, topn=30), dark_mode=is_dark)
@@ -830,22 +821,22 @@ def update_visuals(
             else:
                 fig_wc.update_layout(**get_plotly_light_layout("Word Cloud N/A"))
 
-        # 3) 3D t-SNE
+        # 3D t-SNE
         fig_tsne = create_tsne_visualization_3d(df, corpus, lda_model, perplexity, dark_mode=is_dark)
 
-        # 4) Bubble Chart
+        # Bubble Chart
         fig_bubble = create_bubble_chart(df, dark_mode=is_dark)
 
-        # 5) Radar chart for Bigrams & Trigrams
+        # Bigrams & Trigrams Radar
         fig_ngram = create_ngram_radar_chart(texts, dark_mode=is_dark)
 
-        # 6) Article Table data
+        # Article Table
         table_data = []
         for i in df.index:
             doc_topics = lda_model.get_document_topics(corpus[i])
             these_topics = [
-                f"Topic {tid}: {w:.3f}"
-                for (tid, w) in sorted(doc_topics, key=lambda x: x[1], reverse=True)
+                f"Topic {tid}: {w:.3f}" for (tid, w)
+                in sorted(doc_topics, key=lambda x: x[1], reverse=True)
             ]
             table_data.append({
                 'title': df.at[i, 'title'],
@@ -857,6 +848,7 @@ def update_visuals(
 
     except Exception as e:
         logger.error(f"update_visuals error: {e}", exc_info=True)
+        # Show error fig
         fig_err = go.Figure()
         is_dark = (theme_value == [1])
         if is_dark:
