@@ -348,17 +348,18 @@ def create_ngram_radar_chart(texts):
 # ─────────────────────────────────────────────────────────────────────
 guardian_theme_css = html.Div([
     html.Div(
-        dangerously_set_inner_html={
-            '__html': '''
-                <style>
-                    :root {
-                        --guardian-blue: #005689;
-                        --guardian-blue-light: #00b2ff;
-                        --guardian-red: #c70000;
-                        --guardian-yellow: #ffbb00;
-                        --guardian-bg: #f6f6f6;
-                        --guardian-border: #dcdcdc;
-                    }
+        **{
+            'dangerously_set_inner_html': {
+                '__html': '''
+                    <style>
+                        :root {
+                            --guardian-blue: #005689;
+                            --guardian-blue-light: #00b2ff;
+                            --guardian-red: #c70000;
+                            --guardian-yellow: #ffbb00;
+                            --guardian-bg: #f6f6f6;
+                            --guardian-border: #dcdcdc;
+                        }
                     
                     body {
                         font-family: "Guardian Egyptian Web", Georgia, serif;
