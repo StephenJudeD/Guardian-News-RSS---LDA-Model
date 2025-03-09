@@ -7,22 +7,17 @@ from guardian_fetcher import GuardianFetcher
 from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
-
 from gensim import corpora, models
 from gensim.models.phrases import Phrases, Phraser
-
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
 from sklearn.manifold import TSNE
-from sklearn.metrics.pairwise import cosine_similarity
 from wordcloud import WordCloud
 import nltk
 import os
 from dotenv import load_dotenv
 from functools import lru_cache
 import logging
-import textwrap
-import networkx as nx
 
 # Logging setup
 logging.basicConfig(
@@ -176,373 +171,7 @@ def process_articles(start_date, end_date, num_topics=3):
         logger.error(f"Error in process_articles: {e}", exc_info=True)
         return None, None, None, None, None
 
-# Calculate topic similarity matrix
-def calculate_topic_similarity(lda_model):
-    try:
-        num_topics = lda_model.num_topics
-        
-        result = {}
-        for i in range(num_topics):
-            result[i] = {}
-            t1 = lda_model.get_topic_terms(i, topn=30)
-            for j in range(num_topics):
-                if i != j:  # Skip self-similarity
-                    t2 = lda_model.get_topic_terms(j, topn=30)
-                    
-                    # Simple overlap calculation
-                    t1_terms = set(term_id for term_id, _ in t1)
-                    t2_terms = set(term_id for term_id, _ in t2)
-                    overlap = len(t1_terms.intersection(t2_terms)) / len(t1_terms.union(t2_terms))
-                    
-                    result[i][j] = float(overlap)
-        
-        return result
-    except Exception as e:
-        logger.error(f"Error calculating topic similarity: {e}", exc_info=True)
-        return {}
-
-# Visualization Helpers - ORIGINAL VISUALIZATIONS MAINTAINED
-def create_word_cloud(topic_words):
-    """
-    Create a word cloud from LDA topic-word pairs.
-    """
-    try:
-        freq_dict = dict(topic_words)
-        
-        wc = WordCloud(
-            background_color="white",
-            width=800,
-            height=400,
-            colormap="Blues",
-            max_words=50,
-            prefer_horizontal=0.9,
-            contour_width=1,
-            contour_color='#ddd'
-        ).generate_from_frequencies(freq_dict)
-
-        fig = px.imshow(wc)
-        fig.update_layout(**get_plot_layout("Topic Word Cloud"))
-        fig.update_xaxes(showticklabels=False)
-        fig.update_yaxes(showticklabels=False)
-        return fig
-    except Exception as e:
-        logger.error(f"Error creating word cloud: {e}", exc_info=True)
-        fig = go.Figure()
-        fig.update_layout(**get_plot_layout(f"Error creating word cloud: {e}"))
-        return fig
-
-def create_tsne_visualization_3d(df, corpus, lda_model, perplexity=30):
-    """
-    3D t-SNE scatter - KEEPING THE 3D VISUALIZATION.
-    """
-    try:
-        if df is None or len(df) < 2:
-            fig = go.Figure()
-            fig.update_layout(**get_plot_layout("Not enough documents for t-SNE"))
-            return fig
-
-        # Get document topics
-        doc_topics_list = []
-        for i in df.index:
-            topic_weights = [0.0] * lda_model.num_topics
-            doc_topics = lda_model.get_document_topics(corpus[i])
-            for topic_id, w in doc_topics:
-                topic_weights[topic_id] = w
-            doc_topics_list.append(topic_weights)
-
-        doc_topics_array = np.array(doc_topics_list, dtype=np.float32)
-        if len(doc_topics_array) < 2:
-            fig = go.Figure()
-            fig.update_layout(**get_plot_layout("Not enough docs for t-SNE"))
-            return fig
-
-        # Optimize perplexity based on sample size
-        perplex_val = min(perplexity, max(2, len(doc_topics_array) // 4))
-        
-        # KEEPING 3D t-SNE
-        tsne = TSNE(
-            n_components=3,
-            random_state=42,
-            perplexity=perplex_val,
-            n_jobs=1,
-            n_iter=250,
-            learning_rate='auto'
-        )
-        embedded = tsne.fit_transform(doc_topics_array)
-
-        # Create dataframe for plotting
-        scatter_df = pd.DataFrame({
-            'x': embedded[:, 0],
-            'y': embedded[:, 1],
-            'z': embedded[:, 2],
-            'dominant_topic': [np.argmax(row) for row in doc_topics_array],
-            'title': df['title']
-        })
-
-        # Create 3D scatter figure
-        fig = go.Figure(data=[
-            go.Scatter3d(
-                x=scatter_df['x'],
-                y=scatter_df['y'],
-                z=scatter_df['z'],
-                mode="markers",
-                marker=dict(
-                    size=5,
-                    color=scatter_df['dominant_topic'],
-                    colorscale='Viridis',
-                    opacity=0.8
-                ),
-                text=scatter_df['title'],
-                hoverinfo="text"
-            )
-        ])
-        
-        # Minimal styling
-        fig.update_layout(**get_plot_layout('3D t-SNE Topic Clustering'))
-        fig.update_layout(
-            scene=dict(
-                xaxis=dict(title='', showticklabels=False),
-                yaxis=dict(title='', showticklabels=False),
-                zaxis=dict(title='', showticklabels=False)
-            )
-        )
-        
-        return fig
-    except Exception as e:
-        logger.error(f"Error creating 3D t-SNE: {e}", exc_info=True)
-        fig = go.Figure()
-        fig.update_layout(**get_plot_layout(f"Error creating 3D t-SNE: {e}"))
-        return fig
-
-def create_bubble_chart(df):
-    """
-    Bubble chart: doc length vs published date
-    """
-    try:
-        if df is None or df.empty:
-            fig = go.Figure()
-            fig.update_layout(**get_plot_layout("Bubble Chart Unavailable"))
-            return fig
-
-        # Filter outliers
-        cut_off = df['doc_length'].quantile(0.95)
-        filtered_df = df[df['doc_length'] <= cut_off].copy()
-        if filtered_df.empty:
-            fig = go.Figure()
-            fig.update_layout(**get_plot_layout("No Data after outlier removal"))
-            return fig
-
-        # Create plot
-        fig = px.scatter(
-            filtered_df,
-            x='published',
-            y='doc_length',
-            size='doc_length',
-            color='dominant_topic',
-            size_max=20,
-            hover_name='title',
-            title='Document Length Over Time',
-            labels={
-                'published': 'Publication Date',
-                'doc_length': 'Article Length (tokens)',
-                'dominant_topic': 'Topic'
-            },
-            log_y=True
-        )
-        
-        # Style the plot
-        fig.update_layout(**get_plot_layout(''))
-        fig.update_layout(
-            xaxis=dict(
-                title='Publication Date',
-                tickformat='%d %b %Y',
-                tickmode='auto',
-                nticks=8
-            ),
-            yaxis=dict(
-                title='Article Length (tokens)',
-                type='log'
-            )
-        )
-        
-        return fig
-    except Exception as e:
-        logger.error(f"Error creating bubble chart: {e}", exc_info=True)
-        fig = go.Figure()
-        fig.update_layout(**get_plot_layout(f"Error creating bubble chart: {e}"))
-        return fig
-
-def create_ngram_radar_chart(texts):
-    """
-    KEEPING THE RADAR CHART for ngrams
-    """
-    try:
-        # Get ngram counts
-        ngram_counts = {}
-        for tokens in texts:
-            for tok in tokens:
-                if "_" in tok:
-                    ngram_counts[tok] = ngram_counts.get(tok, 0) + 1
-
-        if not ngram_counts:
-            fig = go.Figure()
-            fig.update_layout(**get_plot_layout("No bigrams/trigrams found"))
-            return fig
-
-        # Get top ngrams
-        sorted_ngrams = sorted(ngram_counts.items(), key=lambda x: x[1], reverse=True)
-        top_ngrams = sorted_ngrams[:10]
-        
-        # Format for better display
-        formatted_ngrams = []
-        for ngram, count in top_ngrams:
-            formatted = ngram.replace('_', ' ')
-            formatted_ngrams.append((formatted, count))
-        
-        df_ngram = pd.DataFrame(formatted_ngrams, columns=["ngram", "count"])
-
-        # Create RADAR CHART as originally requested
-        fig = px.line_polar(
-            df_ngram,
-            r="count",
-            theta="ngram",
-            line_close=True,
-            title="Top Bigrams & Trigrams",
-            color_discrete_sequence=[GUARDIAN_COLORS["blue"]]
-        )
-        
-        # Style the chart
-        fig.update_traces(
-            fill='toself',
-            fillcolor=f"rgba({0},{86},{137},{0.3})"  # Semi-transparent guardian blue
-        )
-        
-        fig.update_layout(**get_plot_layout(''))
-        fig.update_layout(
-            polar=dict(
-                radialaxis=dict(
-                    visible=True,
-                    range=[0, max(df_ngram["count"]) * 1.1]
-                ),
-                angularaxis=dict(
-                    tickfont=dict(size=11)
-                )
-            ),
-            showlegend=False
-        )
-        
-        return fig
-    except Exception as e:
-        logger.error(f"Error creating ngram radar chart: {e}", exc_info=True)
-        fig = go.Figure()
-        fig.update_layout(**get_plot_layout(f"Error creating ngram radar chart: {e}"))
-        return fig
-
-def create_topic_network(topic_similarity, lda_model):
-    """
-    Create a network visualization of topic relationships.
-    """
-    try:
-        if not topic_similarity:
-            fig = go.Figure()
-            fig.update_layout(**get_plot_layout("No topic similarity data available"))
-            return fig
-            
-        # Create a network graph
-        G = nx.Graph()
-        
-        # Add nodes (topics)
-        for topic_id in range(lda_model.num_topics):
-            # Get top words for the topic for node labels
-            top_words = [word for word, _ in lda_model.show_topic(topic_id, topn=3)]
-            topic_label = f"Topic {topic_id}: {', '.join(top_words)}"
-            G.add_node(topic_id, label=topic_label)
-        
-        # Add edges (relationships between topics)
-        for topic1, relations in topic_similarity.items():
-            for topic2, strength in relations.items():
-                if float(strength) > 0.2:  # Only add edges for sufficiently strong relationships
-                    G.add_edge(int(topic1), int(topic2), weight=float(strength))
-        
-        # Use spring layout to position nodes
-        pos = nx.spring_layout(G, seed=42)
-        
-        # Create edge traces
-        edge_traces = []
-        for edge in G.edges():
-            x0, y0 = pos[edge[0]]
-            x1, y1 = pos[edge[1]]
-            weight = G.edges[edge]['weight']
-            
-            # Adjust line width based on weight
-            width = weight * 5
-            
-            edge_trace = go.Scatter(
-                x=[x0, x1], 
-                y=[y0, y1],
-                line=dict(width=width, color='rgba(150,150,150,0.3)'),
-                hoverinfo='text',
-                text=f"Similarity: {weight:.2f}",
-                mode='lines'
-            )
-            edge_traces.append(edge_trace)
-        
-        # Create node trace
-        node_x = []
-        node_y = []
-        node_text = []
-        node_size = []
-        node_color = []
-        
-        for node in G.nodes():
-            x, y = pos[node]
-            node_x.append(x)
-            node_y.append(y)
-            node_text.append(G.nodes[node]['label'])
-            # Size based on degree (number of connections)
-            node_size.append(10 + G.degree(node) * 5)
-            # Color based on topic ID
-            node_color.append(node)
-        
-        node_trace = go.Scatter(
-            x=node_x, 
-            y=node_y,
-            mode='markers+text',
-            marker=dict(
-                size=node_size,
-                color=node_color,
-                colorscale='Viridis',
-                line=dict(width=2)
-            ),
-            text=[f"Topic {i}" for i in range(len(node_text))],
-            textposition="bottom center",
-            hoverinfo='text',
-            hovertext=node_text
-        )
-        
-        # Create the figure
-        fig = go.Figure(data=edge_traces + [node_trace])
-        
-        # Update layout
-        fig.update_layout(
-            title="Topic Similarity Network",
-            showlegend=False,
-            hovermode='closest',
-            margin=dict(b=20, l=5, r=5, t=40),
-            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-            yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-            **get_plot_layout('')
-        )
-        
-        return fig
-        
-    except Exception as e:
-        logger.error(f"Error creating topic network: {e}", exc_info=True)
-        fig = go.Figure()
-        fig.update_layout(**get_plot_layout(f"Error creating topic network: {e}"))
-        return fig
-
-# Layout Components - without custom CSS
+# Layout Components
 navbar = dbc.Navbar(
     dbc.Container([
         html.A(
@@ -634,17 +263,6 @@ tsne_controls = dbc.Card([
             tooltip={"placement": "bottom", "always_visible": True},
         ),
     ])
-])
-
-update_button = dbc.Row([
-    dbc.Col([
-        dbc.Button(
-            "Update Analysis",
-            id="update-button",
-            color="primary",
-            size="lg",
-        ),
-    ], width={"size": 6, "offset": 3}),
 ])
 
 topic_selector = dbc.Card([
@@ -743,9 +361,10 @@ article_table_card = dbc.Card([
     ]),
 ])
 
-# Simplified app layout - CSS removed but keeping original structure
+# Simplified app layout
 app.layout = html.Div([
     dcc.Store(id="app-data"),
+    dcc.Interval(id="auto-load", interval=1000, n_intervals=0),  # Auto-load trigger
     
     navbar,
     dbc.Container([
@@ -759,8 +378,6 @@ app.layout = html.Div([
                     dbc.Col(topic_controls, md=4),
                     dbc.Col(tsne_controls, md=4),
                 ]),
-                html.Br(),
-                update_button,
                 html.Br(),
                 topic_selector,
                 html.Br(),
@@ -828,55 +445,20 @@ def update_date_range(n1, n3, n7):
         
     return start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')
 
-# Button styling for date range
-@app.callback(
-    [
-        Output("date-1d", "color"),
-        Output("date-3d", "color"),
-        Output("date-7d", "color"),
-    ],
-    [
-        Input("date-1d", "n_clicks"),
-        Input("date-3d", "n_clicks"),
-        Input("date-7d", "n_clicks"),
-    ],
-)
-def update_date_button_style(n1, n3, n7):
-    ctx = callback_context
-    if not ctx.triggered:
-        # Default to 7 days
-        return "outline-primary", "outline-primary", "primary"
-        
-    button_id = ctx.triggered[0]['prop_id'].split('.')[0]
-    
-    if button_id == "date-1d":
-        return "primary", "outline-primary", "outline-primary"
-    elif button_id == "date-3d":
-        return "outline-primary", "primary", "outline-primary"
-    elif button_id == "date-7d":
-        return "outline-primary", "outline-primary", "primary"
-    else:
-        # Default
-        return "outline-primary", "outline-primary", "primary"
-
-# Main data processing callback
+# Auto-load data when inputs change
 @app.callback(
     [Output("app-data", "data"),
      Output("topic-buttons", "children"),
      Output("topic-selector-card", "style"),
      Output("topic-filter", "options"),
      Output("article-count", "children")],
-    [Input("update-button", "n_clicks")],
-    [State("start-date", "value"),
-     State("end-date", "value"),
-     State("num-topics-slider", "value"),
-     State("tsne-perplexity-slider", "value")]
+    [Input("start-date", "value"),
+     Input("end-date", "value"),
+     Input("num-topics-slider", "value"),
+     Input("tsne-perplexity-slider", "value"),
+     Input("auto-load", "n_intervals")]
 )
-def process_and_store_data(n_clicks, start_date, end_date, num_topics, perplexity):
-    if n_clicks is None:
-        # Initial load, return empty data
-        return None, [], {"display": "none"}, [{"label": "All Topics", "value": "all"}], ""
-        
+def auto_load_data(start_date, end_date, num_topics, perplexity, n_intervals):
     # Process articles
     df, texts, dictionary, corpus, lda_model = process_articles(start_date, end_date, num_topics)
     
@@ -918,9 +500,6 @@ def process_and_store_data(n_clicks, start_date, end_date, num_topics, perplexit
     word_clouds = {}
     for t_id in range(num_topics):
         word_clouds[t_id] = lda_model.show_topic(t_id, topn=30)
-    
-    # Calculate topic similarity
-    topic_similarities = calculate_topic_similarity(lda_model)
     
     # Extract ngrams
     ngram_counts = {}
@@ -991,7 +570,6 @@ def process_and_store_data(n_clicks, start_date, end_date, num_topics, perplexit
         "word_clouds": word_clouds,
         "tsne_data": tsne_data,
         "ngrams": formatted_ngrams,
-        "topic_similarities": topic_similarities,
         "num_topics": num_topics,
         "start_date": start_date,
         "end_date": end_date,
@@ -1033,47 +611,6 @@ def process_and_store_data(n_clicks, start_date, end_date, num_topics, perplexit
     ])
     
     return data, buttons, selector_style, filter_options, count_message
-
-# Topic button callbacks - simple styling without CSS classes
-@app.callback(
-    [Output(f"topic-btn-all", "style")] +
-    [Output(f"topic-btn-{i}", "style") for i in range(10)],  # Support up to 10 topics
-    [Input(f"topic-btn-all", "n_clicks")] +
-    [Input(f"topic-btn-{i}", "n_clicks") for i in range(10)],
-    [State("app-data", "data"), State("topic-filter", "value")]
-)
-def update_active_topic(*args):
-    # Extract n_clicks and data from args
-    n_clicks_list = args[:11]  # First 11 args are n_clicks
-    data = args[11]  # Next arg is app-data
-    current_filter = args[12]  # Last arg is topic-filter value
-    
-    ctx = callback_context
-    if not ctx.triggered or data is None:
-        # Initial load, keep "All Topics" selected
-        base_style = {"margin": "5px"}
-        active_style = {"margin": "5px", "backgroundColor": "#005689", "color": "white"}
-        return [active_style] + [base_style] * 10
-    
-    button_id = ctx.triggered[0]['prop_id'].split('.')[0]
-    topic_id = button_id.split('-')[-1]  # Extract topic id from button id
-    
-    # Update active button
-    base_style = {"margin": "5px"}
-    active_style = {"margin": "5px", "backgroundColor": "#005689", "color": "white"}
-    
-    result = [base_style] * 11
-    if topic_id == "all":
-        result[0] = active_style
-    else:
-        try:
-            index = int(topic_id) + 1  # +1 because "all" is at index 0
-            result[index] = active_style
-        except:
-            # Default to "all" if something goes wrong
-            result[0] = active_style
-    
-    return result
 
 # Update visualizations based on app data
 @app.callback(
@@ -1234,7 +771,7 @@ def update_visualizations(data, *args):
         logger.error(f"Error creating bubble chart: {e}", exc_info=True)
         bubble_fig = empty_fig
     
-    # Ngram radar chart - keeping the radar visualization
+    # Ngram radar chart
     try:
         ngram_df = pd.DataFrame(data["ngrams"])
         
