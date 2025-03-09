@@ -1228,7 +1228,6 @@ app.layout = html.Div([
     dcc.Store(id="dark-mode-store", data=False),
     # Dark mode script and style
     html.Script(dark_mode_script),
-    html.Style(dark_mode_style),
     
     navbar,
     dbc.Container([
