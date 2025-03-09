@@ -40,7 +40,6 @@ CUSTOM_STOP_WORDS = {
     'told', 'reuters', 'guardian', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
     'week', 'month', 'us', 'people', 'government', 'could', 'will', 'may', 'trump', 'published', 'article', 'editor',
     'nt', 'dont', 'doesnt', 'cant', 'couldnt', 'shouldnt', 'last', 'well', 'still', 'price',
-    # Add as many extra items as you want:
     'breaking', 'update', 'live', 'say'
 }
 
@@ -71,19 +70,19 @@ server = app.server
 app.config.suppress_callback_exceptions = True
 
 # ─────────────────────────────────────────────────────────────────────
-# Guardian Theme Plot Layout Helper
+# Guardian-Themed Plot Layout Helper
 # ─────────────────────────────────────────────────────────────────────
 def get_guardian_plot_layout(fig_title=""):
-    """Return a default layout for Guardian-themed figures."""
+    """Return a default layout for Guardian-themed figures with bigger fonts."""
     return dict(
         paper_bgcolor="white",
         plot_bgcolor="#f6f6f6",
-        font=dict(family="Guardian Egyptian Web, Georgia, serif"),
+        font=dict(family="Guardian Egyptian Web, Georgia, serif", size=16),  # increased font size
         title=fig_title,
         margin=dict(l=40, r=40, t=50, b=40),
-        title_font=dict(family="Guardian Egyptian Web, Georgia, serif", size=18, color="#005689"),
-        legend_title_font=dict(family="Guardian Egyptian Web, Georgia, serif", size=12),
-        legend_font=dict(family="Guardian Egyptian Web, Georgia, serif", size=10),
+        title_font=dict(family="Guardian Egyptian Web, Georgia, serif", size=20, color="#005689"),  # bigger headings
+        legend_title_font=dict(family="Guardian Egyptian Web, Georgia, serif", size=14),
+        legend_font=dict(family="Guardian Egyptian Web, Georgia, serif", size=12),
         colorway=["#005689", "#c70000", "#ffbb00", "#00b2ff", "#90dcff", "#ff5b5b", 
                   "#4bc6df", "#aad801", "#43853d", "#767676"],
         xaxis=dict(
@@ -99,7 +98,7 @@ def get_guardian_plot_layout(fig_title=""):
             showgrid=True,
             showline=True,
             linecolor="#dcdcdc"
-        ),
+        )
     )
 
 # ─────────────────────────────────────────────────────────────────────
@@ -188,21 +187,23 @@ def process_articles(start_date, end_date, num_topics=5):
 def create_word_cloud(topic_words):
     """
     Create a word cloud from LDA topic-word pairs using Guardian colors.
+    Made bigger & wider for better visibility.
     """
     try:
         freq_dict = dict(topic_words)
         
         wc = WordCloud(
             background_color="white",
-            width=800,
-            height=400,
-            colormap="Blues",  # Use blues to match Guardian color scheme
+            width=1100,  # increased width
+            height=500,  # increased height
+            colormap="Blues",  # Use blues to match Guardian color aesthetic
             max_words=50,
             prefer_horizontal=0.9
         ).generate_from_frequencies(freq_dict)
 
         fig = px.imshow(wc)
         fig.update_layout(**get_guardian_plot_layout("Topic Word Cloud"))
+        # Remove axis ticks
         fig.update_xaxes(showticklabels=False)
         fig.update_yaxes(showticklabels=False)
         return fig
@@ -349,14 +350,55 @@ def create_ngram_radar_chart(texts):
 
 guardian_theme_css = dcc.Markdown('''
 <style>
-    :root {--guardian-blue:#005689;--guardian-blue-light:#00b2ff;--guardian-red:#c70000;--guardian-yellow:#ffbb00;--guardian-bg:#f6f6f6;--guardian-border:#dcdcdc;}
-    body{font-family:"Guardian Egyptian Web",Georgia,serif;background:var(--guardian-bg);}
-    .guardian-navbar{background:var(--guardian-blue);color:white;padding:10px 0;border-bottom:2px solid var(--guardian-yellow);}
-    .guardian-card{border:1px solid var(--guardian-border);border-radius:2px;box-shadow:0 1px 3px rgba(0,0,0,0.1);background:white;margin-bottom:20px;}
-    .guardian-header{background:var(--guardian-blue);color:white;font-weight:bold;padding:12px 15px;border-bottom:2px solid var(--guardian-yellow);}
-    .guardian-card-body{padding:20px;background:white;}
-    .guardian-control{background:white;border:1px solid var(--guardian-border);padding:15px;border-radius:2px;}
-    .guardian-container{max-width:1200px;margin:0 auto;padding:20px;}
+    /* Use Guardian Blue for navbar background and text color */
+    .guardian-navbar {
+        background-color: #005689 !important;
+        color: #fff !important;
+        padding: 10px 0;
+        border-bottom: 2px solid #ffbb00; /* Guardian yellow accent */
+    }
+    .guardian-navbar h1 {
+        color: #fff !important;
+        margin-left: 10px;
+        font-size: 32px; /* Make the title more prominent */
+        font-weight: bold;
+    }
+    body {
+        font-family: "Guardian Egyptian Web", Georgia, serif;
+        font-size: 1.1rem; /* globally bump up base font size */
+        background: #f6f6f6;
+        color: #333; /* default text color */
+    }
+    .guardian-card {
+        border: 1px solid #dcdcdc;
+        border-radius: 2px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        background: white;
+        margin-bottom: 20px;
+    }
+    .guardian-header {
+        background: #005689;
+        color: white;
+        font-weight: bold;
+        padding: 12px 15px;
+        border-bottom: 2px solid #ffbb00; /* Guardian yellow accent */
+        font-size: 1.1rem;
+    }
+    .guardian-card-body {
+        padding: 20px;
+        background: white;
+    }
+    .guardian-control {
+        background: white;
+        border: 1px solid #dcdcdc;
+        padding: 15px;
+        border-radius: 2px;
+    }
+    .guardian-container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+    }
 </style>
 ''', dangerously_allow_html=True)
 
@@ -364,18 +406,21 @@ guardian_theme_css = dcc.Markdown('''
 # Layout
 # ─────────────────────────────────────────────────────────────────────
 
+# Navbar with Guardian brand
 navbar = dbc.Navbar(
     dbc.Container(
         [
             dbc.Row(
                 [
                     dbc.Col(
-                        html.Img(src="https://static.guim.co.uk/sys-images/Guardian/Pix/pictures/2010/03/01/poweredbyguardianBLACK.png", 
-                                height="32px", className="mr-2"),
+                        html.Img(
+                            src="https://static.guim.co.uk/sys-images/Guardian/Pix/pictures/2010/03/01/poweredbyguardianBLACK.png", 
+                            height="32px"
+                        ),
                         width="auto",
                     ),
                     dbc.Col(
-                        html.H1("Guardian News Topic Explorer", className="mb-0 text-white"),
+                        html.H1("Guardian News Topic Explorer", className="mb-0"),
                         width="auto",
                     ),
                 ],
@@ -495,7 +540,7 @@ topic_dist_card = dbc.Card(
             dcc.Loading(
                 id="loading-topic-dist",
                 type="circle",
-                children=[dcc.Graph(id='topic-distribution', style={"height": "600px"})]
+                children=[dcc.Graph(id='topic-distribution', style={"height": "600px", "width": "100%"})]
             ),
             className="guardian-card-body"
         )
@@ -510,22 +555,7 @@ tsne_3d_card = dbc.Card(
             dcc.Loading(
                 id="loading-3d-tsne",
                 type="circle",
-                children=[dcc.Graph(id='tsne-plot', style={"height": "600px"})]
-            ),
-            className="guardian-card-body"
-        )
-    ],
-    className="mb-3 guardian-card",
-)
-
-wordcloud_card = dbc.Card(
-    [
-        dbc.CardHeader("Word Cloud", className="guardian-header"),
-        dbc.CardBody(
-            dcc.Loading(
-                id="loading-wordcloud",
-                type="circle",
-                children=[dcc.Graph(id='word-cloud', style={"height": "600px"})]
+                children=[dcc.Graph(id='tsne-plot', style={"height": "600px", "width": "100%"})]
             ),
             className="guardian-card-body"
         )
@@ -540,7 +570,23 @@ bubble_chart_card = dbc.Card(
             dcc.Loading(
                 id="loading-bubble-chart",
                 type="circle",
-                children=[dcc.Graph(id='bubble-chart', style={"height": "600px"})]
+                children=[dcc.Graph(id='bubble-chart', style={"height": "600px", "width": "100%"})]
+            ),
+            className="guardian-card-body"
+        )
+    ],
+    className="mb-3 guardian-card",
+)
+
+# We move the Word Cloud card *below* the bubble chart, near the bottom
+wordcloud_card = dbc.Card(
+    [
+        dbc.CardHeader("Word Cloud", className="guardian-header"),
+        dbc.CardBody(
+            dcc.Loading(
+                id="loading-wordcloud",
+                type="circle",
+                children=[dcc.Graph(id='word-cloud', style={"height": "600px", "width": "100%"})]
             ),
             className="guardian-card-body"
         )
@@ -555,7 +601,7 @@ bigrams_trigrams_card = dbc.Card(
             dcc.Loading(
                 id="loading-bigrams-trigrams",
                 type="circle",
-                children=[dcc.Graph(id='bigrams-trigrams', style={"height": "600px"})]
+                children=[dcc.Graph(id='bigrams-trigrams', style={"height": "600px", "width": "100%"})]
             ),
             className="guardian-card-body"
         )
@@ -586,7 +632,8 @@ article_table_card = dbc.Card(
                     'fontWeight': 'bold',
                     'backgroundColor': '#005689',
                     'color': 'white',
-                    'padding': '12px 10px'
+                    'padding': '12px 10px',
+                    'fontSize': '1rem'
                 },
                 style_data_conditional=[
                     {
@@ -610,8 +657,11 @@ app.layout = dbc.Container(
         controls_row,
         dbc.Row([dbc.Col(topic_dist_card, md=12)], className="g-3"),
         dbc.Row([dbc.Col(tsne_3d_card, md=12)], className="g-3"),
-        dbc.Row([dbc.Col(wordcloud_card, md=12)], className="g-3"),
         dbc.Row([dbc.Col(bubble_chart_card, md=12)], className="g-3"),
+
+        # Move the word cloud just above the articles
+        dbc.Row([dbc.Col(wordcloud_card, md=12)], className="g-3"),
+
         dbc.Row([dbc.Col(bigrams_trigrams_card, md=12)], className="g-3"),
         dbc.Row([dbc.Col(article_table_card, md=12)], className="g-3"),
     ],
@@ -689,7 +739,7 @@ def update_visuals(start_date, end_date, num_topics, perplexity):
         df["doc_length"] = doc_lengths
         df["dominant_topic"] = doc_dominant_topics
 
-        # Topic Word Dist
+        # Topic Word Distribution
         words_list = []
         for t_id in range(num_topics):
             if 0 <= t_id < lda_model.num_topics:
@@ -712,7 +762,7 @@ def update_visuals(start_date, end_date, num_topics, perplexity):
             )
             fig_dist.update_layout(**get_guardian_plot_layout())
 
-        # Word Cloud
+        # Word Cloud (using topic 0's top words, for simplicity)
         fig_wc = go.Figure()
         if num_topics > 0 and lda_model.num_topics > 0:
             fig_wc = create_word_cloud(lda_model.show_topic(0, topn=30))
@@ -732,7 +782,6 @@ def update_visuals(start_date, end_date, num_topics, perplexity):
         table_data = []
         for i in df.index:
             doc_topics = lda_model.get_document_topics(corpus[i])
-            # Use <br> tags instead of \n for proper rendering in markdown
             these_topics = [
                 f"**Topic {tid}**: {w:.3f}" for (tid, w)
                 in sorted(doc_topics, key=lambda x: x[1], reverse=True)
