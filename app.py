@@ -1489,7 +1489,8 @@ def process_and_store_data(n_clicks, start_date, end_date, num_topics, perplexit
     doc_topics_list = []
     for i in df.index:
         topic_weights = [0.0] * lda_model.num_topics
-        for topic_id, w in lda_model[corpus[i]]:
+        doc_topics, _, _ = lda_model[corpus[i]]  # Unpack all three values
+        for topic_id, w in doc_topics:  # Now iterate over the topic distribution
             topic_weights[topic_id] = w
         doc_topics_list.append(topic_weights)
     
