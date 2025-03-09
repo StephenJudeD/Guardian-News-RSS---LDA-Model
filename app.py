@@ -301,7 +301,7 @@ dark_mode_style = """
 # Data Processing
 # ─────────────────────────────────────────────────────────────────────
 @lru_cache(maxsize=64)
-def process_articles(start_date, end_date, num_topics=5):
+def process_articles(start_date, end_date, num_topics=3):
     """
     Fetch Guardian articles in the given date range,
     then tokenize, detect bigrams/trigrams, and train LDA on the entire set.
@@ -314,7 +314,7 @@ def process_articles(start_date, end_date, num_topics=5):
         end_date_dt = datetime.strptime(end_date, '%Y-%m-%d').date()
         days_back = (datetime.now().date() - start_date_dt).days + 1
 
-        df = guardian.fetch_articles(days_back=days_back, page_size=200)
+        df = guardian.fetch_articles(days_back=days_back, page_size=50)
         if df.empty:
             logger.warning("No articles fetched!")
             return None, None, None, None, None
@@ -367,7 +367,7 @@ def process_articles(start_date, end_date, num_topics=5):
             corpus=corpus,
             num_topics=num_topics,
             id2word=dictionary,
-            passes=15,  # Increased for better quality
+            passes=5,  # 
             alpha='auto',  # Auto-optimize alpha
             random_state=42,
             chunksize=100,
