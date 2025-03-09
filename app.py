@@ -477,8 +477,9 @@ def create_tsne_visualization_3d(df, corpus, lda_model, perplexity=30, dark_mode
 
         doc_topics_list = []
         for i in df.index:
-            topic_weights = [0.0]*lda_model.num_topics
-            for topic_id, w in lda_model[corpus[i]]:
+            topic_weights = [0.0] * lda_model.num_topics
+            doc_topics, _, _ = lda_model[corpus[i]]  # Unpack all three values
+            for topic_id, w in doc_topics:  # Now iterate over the topic distribution
                 topic_weights[topic_id] = w
             doc_topics_list.append(topic_weights)
 
