@@ -73,31 +73,57 @@ app.config.suppress_callback_exceptions = True
 # Guardian-Themed Plot Layout Helper
 # ─────────────────────────────────────────────────────────────────────
 def get_guardian_plot_layout(fig_title=""):
-    """Return a default layout for Guardian-themed figures with bigger fonts."""
+    """Return a polished Guardian-themed layout with improved readability"""
     return dict(
-        paper_bgcolor="white",
-        plot_bgcolor="#f6f6f6",
-        font=dict(family="Guardian Egyptian Web, Georgia, serif", size=16),  # increased font size
-        title=fig_title,
-        margin=dict(l=40, r=40, t=50, b=40),
-        title_font=dict(family="Guardian Egyptian Web, Georgia, serif", size=20, color="#005689"),  # bigger headings
-        legend_title_font=dict(family="Guardian Egyptian Web, Georgia, serif", size=14),
-        legend_font=dict(family="Guardian Egyptian Web, Georgia, serif", size=12),
-        colorway=["#005689", "#c70000", "#ffbb00", "#00b2ff", "#90dcff", "#ff5b5b", 
-                  "#4bc6df", "#aad801", "#43853d", "#767676"],
+        paper_bgcolor="#FFFFFF",
+        plot_bgcolor="#F6F6F6",
+        font=dict(
+            family="Guardian Egyptian Text, Georgia, serif",
+            size=18  # Increased base size
+        ),
+        title=dict(
+            text=fig_title,
+            x=0.5,  # Center title
+            font=dict(
+                family="Guardian Egyptian Text",
+                size=24,  # Larger title
+                color="#052962",  # Guardian dark blue
+                weight="bold"
+            )
+        ),
+        margin=dict(l=50, r=50, t=80, b=50),  # More title space
+        legend=dict(
+            title_font=dict(
+                family="Guardian Sans",
+                size=16,  # Larger legend
+                color="#121212"
+            ),
+            font=dict(
+                family="Guardian Sans",
+                size=14,
+                color="#444444"
+            )
+        ),
+        colorway=["#052962", "#C70000", "#FFBB00", "#00B2FF"],  # Official brand colors
         xaxis=dict(
-            gridcolor="#dcdcdc",
-            zerolinecolor="#dcdcdc",
-            showgrid=True,
-            showline=True,
-            linecolor="#dcdcdc"
+            title_font=dict(size=18),  # Bigger axis titles
+            tickfont=dict(size=16),    # Larger ticks
+            gridcolor="#E3E3E3",
+            linecolor="#DCDCDC",
+            showgrid=True
         ),
         yaxis=dict(
-            gridcolor="#dcdcdc",
-            zerolinecolor="#dcdcdc",
-            showgrid=True,
-            showline=True,
-            linecolor="#dcdcdc"
+            title_font=dict(size=18),
+            tickfont=dict(size=16),
+            gridcolor="#E3E3E3",
+            linecolor="#DCDCDC",
+            showgrid=True
+        ),
+        hoverlabel=dict(
+            font=dict(
+                family="Guardian Sans",
+                size=14
+            )
         )
     )
 
@@ -350,54 +376,63 @@ def create_ngram_radar_chart(texts):
 
 guardian_theme_css = dcc.Markdown('''
 <style>
-    /* Use Guardian Blue for navbar background and text color */
-    .guardian-navbar {
-        background-color: #005689 !important;
-        color: #fff !important;
-        padding: 10px 0;
-        border-bottom: 2px solid #ffbb00; /* Guardian yellow accent */
+    :root {
+        --guardian-blue: #052962;
+        --guardian-yellow: #ffe500;
+        --guardian-red: #c70000;
     }
-    .guardian-navbar h1 {
-        color: #fff !important;
-        margin-left: 10px;
-        font-size: 32px; /* Make the title more prominent */
-        font-weight: bold;
-    }
+    
     body {
-        font-family: "Guardian Egyptian Web", Georgia, serif;
-        font-size: 1.1rem; /* globally bump up base font size */
-        background: #f6f6f6;
-        color: #333; /* default text color */
+        background: var(--guardian-blue) !important;
+        font-family: "Guardian Sans", Arial, sans-serif !important;
+        font-size: 1.2rem !important;
+        line-height: 1.5;
+        color: #333;
     }
+
+    .guardian-navbar {
+        background: var(--guardian-blue) !important;
+        border-bottom: 3px solid var(--guardian-yellow) !important;
+        padding: 0.8rem 0;
+    }
+
     .guardian-card {
-        border: 1px solid #dcdcdc;
-        border-radius: 2px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-        background: white;
-        margin-bottom: 20px;
+        background: rgba(255,255,255,0.95) !important;
+        border-radius: 8px !important;
+        border: none !important;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.15) !important;
+        margin-bottom: 2rem;
     }
+
     .guardian-header {
-        background: #005689;
-        color: white;
-        font-weight: bold;
-        padding: 12px 15px;
-        border-bottom: 2px solid #ffbb00; /* Guardian yellow accent */
-        font-size: 1.1rem;
+        background: var(--guardian-blue) !important;
+        color: white !important;
+        font-family: "Guardian Egyptian Text" !important;
+        font-size: 1.4rem !important;
+        letter-spacing: -0.3px;
+        border-radius: 8px 8px 0 0 !important;
+        padding: 1.2rem 2rem !important;
     }
+
     .guardian-card-body {
-        padding: 20px;
-        background: white;
+        padding: 2rem !important;
+        background: transparent !important;
     }
-    .guardian-control {
-        background: white;
-        border: 1px solid #dcdcdc;
-        padding: 15px;
-        border-radius: 2px;
+
+    /* Bigger chart fonts */
+    .dash-graph text {
+        font-family: "Guardian Sans" !important;
+        font-size: 14px !important;
     }
-    .guardian-container {
-        max-width: 1200px;
-        margin: 0 auto;
-        padding: 20px;
+    
+    .xtick, .ytick {
+        font-size: 14px !important;
+    }
+    
+    /* Colorful hover effects */
+    .guardian-card:hover {
+        transform: translateY(-3px);
+        transition: all 0.3s ease;
     }
 </style>
 ''', dangerously_allow_html=True)
@@ -415,12 +450,21 @@ navbar = dbc.Navbar(
                     dbc.Col(
                         html.Img(
                             src="https://static.guim.co.uk/sys-images/Guardian/Pix/pictures/2010/03/01/poweredbyguardianBLACK.png", 
-                            height="32px"
+                            height="40px",  # increased size
+                            className="me-3"
                         ),
                         width="auto",
                     ),
                     dbc.Col(
-                        html.H1("Guardian News Topic Explorer", className="mb-0"),
+                        html.H1("GUARDIAN PULSE: Live News Insights Engine", 
+                               className="mb-0", 
+                               style={
+                                   'fontFamily': 'Guardian Egyptian Text',
+                                   'fontWeight': '800',
+                                   'fontSize': '2.2rem',
+                                   'textShadow': '1px 1px 2px rgba(0,0,0,0.1)',
+                                   'letterSpacing': '-0.5px'
+                               }),
                         width="auto",
                     ),
                 ],
@@ -431,7 +475,7 @@ navbar = dbc.Navbar(
         fluid=True
     ),
     className="guardian-navbar mb-4",
-    dark=True
+    style={'backgroundColor': '#052962'}  # Guardian blue
 )
 
 explainer_card = dbc.Card(
