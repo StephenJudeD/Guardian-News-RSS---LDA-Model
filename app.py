@@ -10,7 +10,6 @@ import numpy as np
 
 from gensim import corpora, models
 from gensim.models.phrases import Phrases, Phraser
-from gensim.models.coherencemodel import CoherenceModel
 
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
@@ -26,10 +25,10 @@ import textwrap
 import networkx as nx
 
 # ─────────────────────────────────────────────────────────────────────
-# Logging setup
+# Logging setup - reduced to INFO level
 # ─────────────────────────────────────────────────────────────────────
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[logging.FileHandler('app.log'), logging.StreamHandler()]
 )
@@ -44,7 +43,6 @@ CUSTOM_STOP_WORDS = {
     'told', 'reuters', 'guardian', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
     'week', 'month', 'us', 'people', 'government', 'could', 'will', 'may', 'trump', 'published', 'article', 'editor',
     'nt', 'dont', 'doesnt', 'cant', 'couldnt', 'shouldnt', 'last', 'well', 'still', 'price',
-    # Add as many extra items as you want:
     'breaking', 'update', 'live', 'say', 'going', 'think', 'know', 'just', 'now', 'even', 'taking', 'back'
 }
 
@@ -135,167 +133,8 @@ def get_guardian_plot_layout(fig_title="", dark_mode=False):
         ),
     )
 
-# Dark mode detection script
-dark_mode_script = """
-    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-        document.body.classList.add('dark-mode');
-    }
-    
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', event => {
-        if (event.matches) {
-            document.body.classList.add('dark-mode');
-        } else {
-            document.body.classList.remove('dark-mode');
-        }
-    });
-"""
-
-# Dark mode stylesheet
-dark_mode_style = """
-    @media (prefers-color-scheme: dark) {
-        body.dark-mode {
-            background-color: #121212;
-            color: #f0f0f0;
-        }
-        body.dark-mode .card {
-            background-color: #1e1e1e;
-            border-color: #333;
-        }
-        body.dark-mode .card-header {
-            background-color: #2c2c2c;
-            border-color: #333;
-        }
-        body.dark-mode .table {
-            color: #f0f0f0;
-        }
-        body.dark-mode .table-striped tbody tr:nth-of-type(odd) {
-            background-color: rgba(255,255,255,0.05);
-        }
-        body.dark-mode .nav-link.active {
-            background-color: #005689 !important;
-            color: white !important;
-        }
-        body.dark-mode hr {
-            border-color: #333;
-        }
-        body.dark-mode .text-muted {
-            color: #aaa !important;
-        }
-        body.dark-mode .input-group-text {
-            background-color: #2c2c2c;
-            color: #f0f0f0;
-            border-color: #444;
-        }
-        body.dark-mode .form-control {
-            background-color: #2c2c2c;
-            color: #f0f0f0;
-            border-color: #444;
-        }
-        body.dark-mode .form-control:focus {
-            background-color: #333;
-            color: white;
-        }
-        body.dark-mode .collapse-button {
-            background-color: #2c2c2c;
-            color: #f0f0f0;
-        }
-        body.dark-mode .topic-pill {
-            background-color: #333;
-        }
-    }
-
-    /* Tooltip styles */
-    .guardian-tooltip {
-        position: relative;
-        display: inline-block;
-        cursor: help;
-    }
-    
-    .guardian-tooltip .tooltiptext {
-        visibility: hidden;
-        width: 200px;
-        background-color: #333;
-        color: #fff;
-        text-align: center;
-        border-radius: 6px;
-        padding: 8px;
-        position: absolute;
-        z-index: 10;
-        bottom: 125%;
-        left: 50%;
-        margin-left: -100px;
-        opacity: 0;
-        transition: opacity 0.3s;
-        font-size: 0.875rem;
-    }
-    
-    .guardian-tooltip:hover .tooltiptext {
-        visibility: visible;
-        opacity: 1;
-    }
-    
-    /* Topic pills */
-    .topic-pill {
-        display: inline-block;
-        padding: 2px 8px;
-        margin: 2px;
-        border-radius: 12px;
-        font-size: 0.75rem;
-        font-weight: bold;
-        color: white;
-    }
-    
-    /* Collapsible card */
-    .collapsible-card .card-header {
-        cursor: pointer;
-    }
-    
-    .collapsible-card .collapse-icon {
-        transition: transform 0.3s;
-    }
-    
-    .collapsible-card .collapse-icon.expanded {
-        transform: rotate(180deg);
-    }
-    
-    /* Card hover effects */
-    .hover-card {
-        transition: transform 0.3s ease, box-shadow 0.3s ease;
-    }
-    .hover-card:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-    }
-    
-    /* Topic buttons */
-    .topic-btn {
-        margin: 4px;
-        transition: all 0.2s;
-    }
-    
-    .topic-btn:hover {
-        transform: translateY(-2px);
-    }
-    
-    /* Custom scrollbar */
-    ::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
-    }
-    ::-webkit-scrollbar-track {
-        background: #f1f1f1;
-    }
-    .dark-mode ::-webkit-scrollbar-track {
-        background: #2d2d2d;
-    }
-    ::-webkit-scrollbar-thumb {
-        background: #888;
-        border-radius: 4px;
-    }
-    ::-webkit-scrollbar-thumb:hover {
-        background: #555;
-    }
-"""
+# Dark mode detection - using dcc.Store instead of html.Script or html.Style
+dark_mode_store = dcc.Store(id="dark-mode-store", data=False)
 
 # ─────────────────────────────────────────────────────────────────────
 # Data Processing
@@ -314,6 +153,7 @@ def process_articles(start_date, end_date, num_topics=3):
         end_date_dt = datetime.strptime(end_date, '%Y-%m-%d').date()
         days_back = (datetime.now().date() - start_date_dt).days + 1
 
+        # Reduced page size for faster loading
         df = guardian.fetch_articles(days_back=days_back, page_size=50)
         if df.empty:
             logger.warning("No articles fetched!")
@@ -362,16 +202,16 @@ def process_articles(start_date, end_date, num_topics=3):
         dictionary.filter_extremes(no_below=3, no_above=0.85)
         corpus = [dictionary.doc2bow(t) for t in texts]
 
-        # Train LDA with dynamic num_topics
+        # Faster LDA parameters
         lda_model = models.LdaModel(
             corpus=corpus,
             num_topics=num_topics,
             id2word=dictionary,
-            passes=5,  # 
-            alpha='auto',  # Auto-optimize alpha
+            passes=3,         # Reduced from 5 
+            iterations=30,    # Reduced from default 50
+            alpha='auto',
             random_state=42,
-            chunksize=100,
-            per_word_topics=True  # For coherence calculation
+            chunksize=100
         )
 
         logger.info(f"Processed {len(df)} articles successfully with LDA num_topics={num_topics}")
@@ -381,50 +221,26 @@ def process_articles(start_date, end_date, num_topics=3):
         logger.error(f"Error in process_articles: {e}", exc_info=True)
         return None, None, None, None, None
 
-# Calculate coherence score for topics
-def calculate_coherence(texts, dictionary, lda_model):
-    try:
-        coherence_model = CoherenceModel(
-            model=lda_model, 
-            texts=texts, 
-            dictionary=dictionary, 
-            coherence='c_v'
-        )
-        coherence_per_topic = coherence_model.get_coherence_per_topic()
-        
-        results = []
-        for topic_id, coherence in enumerate(coherence_per_topic):
-            results.append({
-                'topic': topic_id,
-                'coherence': coherence
-            })
-        return results
-    except Exception as e:
-        logger.error(f"Error calculating coherence: {e}", exc_info=True)
-        return [{'topic': i, 'coherence': 0} for i in range(lda_model.num_topics)]
-
-# Calculate topic similarity matrix
+# Calculate topic similarity matrix - simplified
 def calculate_topic_similarity(lda_model):
     try:
         num_topics = lda_model.num_topics
-        topic_term_dists = np.array([
-            [lda_model.expElogbeta[topic, term] for term in range(lda_model.expElogbeta.shape[1])]
-            for topic in range(num_topics)
-        ])
         
-        # Normalize
-        topic_term_dists = topic_term_dists / topic_term_dists.sum(axis=1, keepdims=True)
-        
-        # Calculate cosine similarity
-        similarity_matrix = cosine_similarity(topic_term_dists)
-        
-        # Convert to dictionary format
+        # Calculate pairwise similarities more efficiently
         result = {}
         for i in range(num_topics):
             result[i] = {}
+            t1 = lda_model.get_topic_terms(i, topn=30)
             for j in range(num_topics):
                 if i != j:  # Skip self-similarity
-                    result[i][j] = float(similarity_matrix[i, j])
+                    t2 = lda_model.get_topic_terms(j, topn=30)
+                    
+                    # Simple overlap calculation - faster than cosine similarity
+                    t1_terms = set(term_id for term_id, _ in t1)
+                    t2_terms = set(term_id for term_id, _ in t2)
+                    overlap = len(t1_terms.intersection(t2_terms)) / len(t1_terms.union(t2_terms))
+                    
+                    result[i][j] = float(overlap)
         
         return result
     except Exception as e:
@@ -432,7 +248,7 @@ def calculate_topic_similarity(lda_model):
         return {}
 
 # ─────────────────────────────────────────────────────────────────────
-# Visualization Helpers
+# Visualization Helpers - Optimized
 # ─────────────────────────────────────────────────────────────────────
 def create_word_cloud(topic_words, dark_mode=False):
     """
@@ -443,10 +259,10 @@ def create_word_cloud(topic_words, dark_mode=False):
         
         wc = WordCloud(
             background_color="#1e1e1e" if dark_mode else "white",
-            width=800,
-            height=400,
-            colormap="Blues",  # Use blues to match Guardian color scheme
-            max_words=50,
+            width=600,  # Reduced size
+            height=300,  # Reduced size
+            colormap="Blues",
+            max_words=40,
             prefer_horizontal=0.9,
             contour_width=1,
             contour_color='#444' if dark_mode else '#ddd'
@@ -465,9 +281,7 @@ def create_word_cloud(topic_words, dark_mode=False):
 
 def create_tsne_visualization_3d(df, corpus, lda_model, perplexity=30, dark_mode=False):
     """
-    3D t-SNE scatter (Plotly).
-    Uses all documents in df/corpus to avoid filtering by topic.
-    Allows dynamic perplexity setting.
+    3D t-SNE scatter - optimized for performance.
     """
     try:
         if df is None or len(df) < 2:
@@ -475,11 +289,12 @@ def create_tsne_visualization_3d(df, corpus, lda_model, perplexity=30, dark_mode
             fig.update_layout(**get_guardian_plot_layout("Not enough documents for t-SNE", dark_mode))
             return fig
 
+        # Get document topics - simplified approach
         doc_topics_list = []
         for i in df.index:
             topic_weights = [0.0] * lda_model.num_topics
-            doc_topics, _, _ = lda_model[corpus[i]]  # Unpack all three values
-            for topic_id, w in doc_topics:  # Now iterate over the topic distribution
+            doc_topics = lda_model.get_document_topics(corpus[i])
+            for topic_id, w in doc_topics:
                 topic_weights[topic_id] = w
             doc_topics_list.append(topic_weights)
 
@@ -489,73 +304,53 @@ def create_tsne_visualization_3d(df, corpus, lda_model, perplexity=30, dark_mode
             fig.update_layout(**get_guardian_plot_layout("Not enough docs for t-SNE", dark_mode))
             return fig
 
-        perplex_val = min(perplexity, max(2, len(doc_topics_array) - 1))
+        # Optimize perplexity based on sample size
+        perplex_val = min(perplexity, max(2, len(doc_topics_array) // 4))
+        
+        # Optimize t-SNE parameters
         tsne = TSNE(
             n_components=3,
             random_state=42,
             perplexity=perplex_val,
-            n_jobs=-1,  # Use all available cores
-            learning_rate='auto'  # Improved parameter
+            n_jobs=1,           # Single thread for stability
+            n_iter=250,         # Reduced iterations
+            learning_rate='auto'
         )
         embedded = tsne.fit_transform(doc_topics_array)
 
+        # Create dataframe for plotting
         scatter_df = pd.DataFrame({
             'x': embedded[:, 0],
             'y': embedded[:, 1],
             'z': embedded[:, 2],
             'dominant_topic': [np.argmax(row) for row in doc_topics_array],
-            'doc_index': df.index,
-            'title': df['title'],
-            'published': df['published']
+            'title': df['title']
         })
-        
-        # Wrap long titles for better hover display
-        scatter_df['hover_title'] = scatter_df['title'].apply(
-            lambda x: '<br>'.join(textwrap.wrap(x, width=40))
-        )
-        scatter_df['hover_text'] = (
-            scatter_df['hover_title'] + '<br>' + 
-            scatter_df['published'].dt.strftime('%Y-%m-%d %H:%M') + 
-            '<br>Topic: ' + scatter_df['dominant_topic'].astype(str)
-        )
 
+        # Create figure
         fig = px.scatter_3d(
             scatter_df,
             x='x', y='y', z='z',
             color='dominant_topic',
-            hover_data=['hover_text'],
-            title=f'3D t-SNE Topic Clustering (Perplexity={perplex_val})',
-            labels={'dominant_topic': 'Topic'}
+            hover_name='title',
+            title=f'3D t-SNE Topic Clustering'
         )
         
-        # Enhance the plot appearance
+        # Simpler markers for better performance
         fig.update_traces(
             marker=dict(
-                size=6,
-                opacity=0.8,
-                line=dict(width=0.5, color='white' if dark_mode else 'black')
-            ),
-            hoverinfo="text",
-            hovertemplate="%{customdata[0]}"
+                size=5,
+                opacity=0.8
+            )
         )
         
+        # Minimal styling
         fig.update_layout(**get_guardian_plot_layout('', dark_mode))
-        # Add camera controls explanation
         fig.update_layout(
             scene=dict(
                 xaxis=dict(title='', showticklabels=False),
                 yaxis=dict(title='', showticklabels=False),
-                zaxis=dict(title='', showticklabels=False),
-                annotations=[
-                    dict(
-                        showarrow=False,
-                        x=0.05,
-                        y=0.05,
-                        z=0.05,
-                        text="Drag to rotate, scroll to zoom",
-                        font=dict(size=12, color="white" if dark_mode else "black")
-                    )
-                ]
+                zaxis=dict(title='', showticklabels=False)
             )
         )
         
@@ -568,8 +363,7 @@ def create_tsne_visualization_3d(df, corpus, lda_model, perplexity=30, dark_mode
 
 def create_bubble_chart(df, dark_mode=False):
     """
-    Bubble chart: doc length vs published date, sized by doc length,
-    colored by dominant_topic. Removes outliers & uses log scale.
+    Bubble chart: doc length vs published date
     """
     try:
         if df is None or df.empty:
@@ -577,6 +371,7 @@ def create_bubble_chart(df, dark_mode=False):
             fig.update_layout(**get_guardian_plot_layout("Bubble Chart Unavailable", dark_mode))
             return fig
 
+        # Filter outliers
         cut_off = df['doc_length'].quantile(0.95)
         filtered_df = df[df['doc_length'] <= cut_off].copy()
         if filtered_df.empty:
@@ -584,25 +379,15 @@ def create_bubble_chart(df, dark_mode=False):
             fig.update_layout(**get_guardian_plot_layout("No Data after outlier removal", dark_mode))
             return fig
 
-        # Wrap titles for better hover display
-        filtered_df['hover_title'] = filtered_df['title'].apply(
-            lambda x: '<br>'.join(textwrap.wrap(x, width=40))
-        )
-        filtered_df['hover_text'] = (
-            filtered_df['hover_title'] + '<br>' + 
-            filtered_df['published'].dt.strftime('%Y-%m-%d %H:%M') + 
-            '<br>Length: ' + filtered_df['doc_length'].astype(str) + ' tokens<br>' +
-            'Topic: ' + filtered_df['dominant_topic'].astype(str)
-        )
-
+        # Create plot
         fig = px.scatter(
             filtered_df,
             x='published',
             y='doc_length',
             size='doc_length',
             color='dominant_topic',
-            size_max=30,
-            hover_data=['hover_text'],
+            size_max=20,
+            hover_name='title',
             title='Document Length Over Time',
             labels={
                 'published': 'Publication Date',
@@ -612,22 +397,14 @@ def create_bubble_chart(df, dark_mode=False):
             log_y=True
         )
         
-        fig.update_traces(
-            hoverinfo="text",
-            hovertemplate="%{customdata[0]}",
-            marker=dict(
-                opacity=0.8,
-                line=dict(width=0.5, color='white' if dark_mode else 'black')
-            )
-        )
-        
+        # Style the plot
         fig.update_layout(**get_guardian_plot_layout('', dark_mode))
         fig.update_layout(
             xaxis=dict(
                 title='Publication Date',
                 tickformat='%d %b %Y',
                 tickmode='auto',
-                nticks=10
+                nticks=8
             ),
             yaxis=dict(
                 title='Article Length (tokens)',
@@ -644,9 +421,10 @@ def create_bubble_chart(df, dark_mode=False):
 
 def create_ngram_radar_chart(texts, dark_mode=False):
     """
-    Radar (sonar) chart of the most common bigrams/trigrams (top 10).
+    Radar chart of the most common bigrams/trigrams.
     """
     try:
+        # Get ngram counts
         ngram_counts = {}
         for tokens in texts:
             for tok in tokens:
@@ -658,18 +436,19 @@ def create_ngram_radar_chart(texts, dark_mode=False):
             fig.update_layout(**get_guardian_plot_layout("No bigrams/trigrams found", dark_mode))
             return fig
 
+        # Get top ngrams
         sorted_ngrams = sorted(ngram_counts.items(), key=lambda x: x[1], reverse=True)
         top_ngrams = sorted_ngrams[:10]
         
-        # Format ngrams for better readability
+        # Format for better display
         formatted_ngrams = []
         for ngram, count in top_ngrams:
-            # Replace underscores with spaces
             formatted = ngram.replace('_', ' ')
             formatted_ngrams.append((formatted, count))
         
         df_ngram = pd.DataFrame(formatted_ngrams, columns=["ngram", "count"])
 
+        # Create radar chart
         fig = px.line_polar(
             df_ngram,
             r="count",
@@ -678,13 +457,14 @@ def create_ngram_radar_chart(texts, dark_mode=False):
             title="Top Bigrams & Trigrams",
             color_discrete_sequence=[GUARDIAN_COLORS["blue"]]
         )
+        
+        # Style the chart
         fig.update_traces(
             fill='toself',
             fillcolor=f"rgba({0},{86},{137},{0.3})"  # Semi-transparent guardian blue
         )
         
         fig.update_layout(**get_guardian_plot_layout('', dark_mode))
-        # Enhance the polar layout
         fig.update_layout(
             polar=dict(
                 radialaxis=dict(
@@ -707,7 +487,7 @@ def create_ngram_radar_chart(texts, dark_mode=False):
 
 def create_topic_network(topic_similarity, lda_model, dark_mode=False):
     """
-    Create a network visualization of topic relationships based on similarity.
+    Create a network visualization of topic relationships.
     """
     try:
         if not topic_similarity:
@@ -728,8 +508,8 @@ def create_topic_network(topic_similarity, lda_model, dark_mode=False):
         # Add edges (relationships between topics)
         for topic1, relations in topic_similarity.items():
             for topic2, strength in relations.items():
-                if strength > 0.2:  # Only add edges for sufficiently strong relationships
-                    G.add_edge(int(topic1), int(topic2), weight=strength)
+                if float(strength) > 0.2:  # Only add edges for sufficiently strong relationships
+                    G.add_edge(int(topic1), int(topic2), weight=float(strength))
         
         # Use spring layout to position nodes
         pos = nx.spring_layout(G, seed=42)
@@ -809,55 +589,6 @@ def create_topic_network(topic_similarity, lda_model, dark_mode=False):
         fig.update_layout(**get_guardian_plot_layout(f"Error creating topic network: {e}", dark_mode))
         return fig
 
-def create_coherence_chart(coherence_data, dark_mode=False):
-    """
-    Create a bar chart showing topic coherence scores.
-    """
-    try:
-        if not coherence_data:
-            fig = go.Figure()
-            fig.update_layout(**get_guardian_plot_layout("No coherence data available", dark_mode))
-            return fig
-            
-        # Create dataframe for plotting
-        df = pd.DataFrame(coherence_data)
-        
-        # Sort by coherence
-        df = df.sort_values('coherence', ascending=False)
-        
-        # Create bar chart
-        fig = px.bar(
-            df,
-            x='topic',
-            y='coherence',
-            color='coherence',
-            title="Topic Coherence Scores",
-            labels={'topic': 'Topic', 'coherence': 'Coherence Score'},
-            color_continuous_scale='Viridis'
-        )
-        
-        # Update layout
-        fig.update_layout(**get_guardian_plot_layout('', dark_mode))
-        fig.update_layout(
-            xaxis_title="Topic",
-            yaxis_title="Coherence Score (higher is better)",
-            coloraxis_showscale=False,
-            hovermode="closest"
-        )
-        
-        # Update hover template
-        fig.update_traces(
-            hovertemplate="Topic %{x}<br>Coherence: %{y:.3f}<extra></extra>"
-        )
-        
-        return fig
-        
-    except Exception as e:
-        logger.error(f"Error creating coherence chart: {e}", exc_info=True)
-        fig = go.Figure()
-        fig.update_layout(**get_guardian_plot_layout(f"Error creating coherence chart: {e}", dark_mode))
-        return fig
-
 # ─────────────────────────────────────────────────────────────────────
 # Custom components
 # ─────────────────────────────────────────────────────────────────────
@@ -896,19 +627,6 @@ def create_tooltip(text, tooltip_text):
             className="guardian-tooltip"
         )
     ])
-
-def create_topic_button(topic_id, is_selected=False):
-    """Create a topic selection button"""
-    button_class = (
-        "btn btn-sm topic-btn "
-        f"{'btn-primary' if is_selected else 'btn-outline-secondary'}"
-    )
-    return html.Button(
-        f"Topic {topic_id}",
-        id=f"topic-btn-{topic_id}",
-        className=button_class,
-        n_clicks=0
-    )
 
 # ─────────────────────────────────────────────────────────────────────
 # Layout Components
@@ -974,7 +692,6 @@ date_controls = dbc.Card([
                     dbc.Button("Last Day", id="date-1d", n_clicks=0, color="outline-primary", size="sm"),
                     dbc.Button("Last 3 Days", id="date-3d", n_clicks=0, color="outline-primary", size="sm"),
                     dbc.Button("Last Week", id="date-7d", n_clicks=0, color="primary", size="sm"),
-                    dbc.Button("Last Month", id="date-30d", n_clicks=0, color="outline-primary", size="sm"),
                 ], className="w-100 mb-3"),
                 dbc.Row([
                     dbc.Col([
@@ -1009,16 +726,16 @@ topic_controls = dbc.Card([
         dcc.Slider(
             id="num-topics-slider",
             min=2,
-            max=15,
+            max=10,
             step=1,
-            value=5,
-            marks={i: str(i) for i in range(2, 16, 2)},
+            value=3,  # Reduced default
+            marks={i: str(i) for i in range(2, 11)},
             tooltip={"placement": "bottom", "always_visible": True},
             className="mb-3"
         ),
         html.Div([
-            html.Small("More topics → more specific categories, but may be less coherent.", className="text-muted"),
-            html.Small("Fewer topics → broader categories with better coherence.", className="text-muted d-block"),
+            html.Small("More topics → more specific categories, but slower processing", className="text-muted"),
+            html.Small("Fewer topics → broader categories with faster processing", className="text-muted d-block"),
         ])
     ])
 ], className="mb-3 hover-card")
@@ -1033,10 +750,10 @@ tsne_controls = dbc.Card([
         dcc.Slider(
             id="tsne-perplexity-slider",
             min=5,
-            max=50,
+            max=40,
             step=5,
-            value=30,
-            marks={i: str(i) for i in range(5, 51, 10)},
+            value=15,  # Reduced default
+            marks={i: str(i) for i in range(5, 41, 5)},
             tooltip={"placement": "bottom", "always_visible": True},
             className="mb-3"
         ),
@@ -1151,19 +868,6 @@ topic_network_card = create_collapsible_card(
     className="mb-3"
 )
 
-coherence_card = create_collapsible_card(
-    header=create_tooltip(
-        "Topic Coherence Metrics", 
-        "Measures how semantically coherent each topic is (higher is better)"
-    ),
-    content=dcc.Loading(
-        dcc.Graph(id="coherence-chart", config={'displayModeBar': True}),
-        type="circle"
-    ),
-    card_id="coherence",
-    className="mb-3"
-)
-
 article_table_card = create_collapsible_card(
     header="Article Details",
     content=[
@@ -1224,11 +928,173 @@ article_table_card = create_collapsible_card(
     className="mb-3"
 )
 
+# This adds some custom CSS to the document head for dark mode and styling
+app.index_string = '''
+<!DOCTYPE html>
+<html>
+    <head>
+        {%metas%}
+        <title>{%title%}</title>
+        {%favicon%}
+        {%css%}
+        <style>
+            /* Dark mode styles */
+            @media (prefers-color-scheme: dark) {
+                body.dark-mode {
+                    background-color: #121212;
+                    color: #f0f0f0;
+                }
+                body.dark-mode .card {
+                    background-color: #1e1e1e;
+                    border-color: #333;
+                }
+                body.dark-mode .card-header {
+                    background-color: #2c2c2c;
+                    border-color: #333;
+                }
+                body.dark-mode .table {
+                    color: #f0f0f0;
+                }
+                body.dark-mode .table-striped tbody tr:nth-of-type(odd) {
+                    background-color: rgba(255,255,255,0.05);
+                }
+                body.dark-mode .nav-link.active {
+                    background-color: #005689 !important;
+                    color: white !important;
+                }
+                body.dark-mode hr {
+                    border-color: #333;
+                }
+                body.dark-mode .text-muted {
+                    color: #aaa !important;
+                }
+                body.dark-mode .input-group-text {
+                    background-color: #2c2c2c;
+                    color: #f0f0f0;
+                    border-color: #444;
+                }
+                body.dark-mode .form-control {
+                    background-color: #2c2c2c;
+                    color: #f0f0f0;
+                    border-color: #444;
+                }
+                body.dark-mode .form-control:focus {
+                    background-color: #333;
+                    color: white;
+                }
+                body.dark-mode .collapse-button {
+                    background-color: #2c2c2c;
+                    color: #f0f0f0;
+                }
+                body.dark-mode .topic-pill {
+                    background-color: #333;
+                }
+            }
+            
+            /* Tooltip styles */
+            .guardian-tooltip {
+                position: relative;
+                display: inline-block;
+                cursor: help;
+            }
+            
+            .guardian-tooltip .tooltiptext {
+                visibility: hidden;
+                width: 200px;
+                background-color: #333;
+                color: #fff;
+                text-align: center;
+                border-radius: 6px;
+                padding: 8px;
+                position: absolute;
+                z-index: 10;
+                bottom: 125%;
+                left: 50%;
+                margin-left: -100px;
+                opacity: 0;
+                transition: opacity 0.3s;
+                font-size: 0.875rem;
+            }
+            
+            .guardian-tooltip:hover .tooltiptext {
+                visibility: visible;
+                opacity: 1;
+            }
+            
+            /* Topic pills */
+            .topic-pill {
+                display: inline-block;
+                padding: 2px 8px;
+                margin: 2px;
+                border-radius: 12px;
+                font-size: 0.75rem;
+                font-weight: bold;
+                color: white;
+            }
+            
+            /* Collapsible card */
+            .collapsible-card .card-header {
+                cursor: pointer;
+            }
+            
+            .collapsible-card .collapse-icon {
+                transition: transform 0.3s;
+            }
+            
+            .collapsible-card .collapse-icon.expanded {
+                transform: rotate(180deg);
+            }
+            
+            /* Card hover effects */
+            .hover-card {
+                transition: transform 0.3s ease, box-shadow 0.3s ease;
+            }
+            .hover-card:hover {
+                transform: translateY(-5px);
+                box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            }
+            
+            /* Topic buttons */
+            .topic-btn {
+                margin: 4px;
+                transition: all 0.2s;
+            }
+            
+            .topic-btn:hover {
+                transform: translateY(-2px);
+            }
+        </style>
+        <script>
+            // Dark mode detection
+            document.addEventListener('DOMContentLoaded', function() {
+                if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                    document.body.classList.add('dark-mode');
+                }
+                
+                window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', event => {
+                    if (event.matches) {
+                        document.body.classList.add('dark-mode');
+                    } else {
+                        document.body.classList.remove('dark-mode');
+                    }
+                });
+            });
+        </script>
+    </head>
+    <body>
+        {%app_entry%}
+        <footer>
+            {%config%}
+            {%scripts%}
+            {%renderer%}
+        </footer>
+    </body>
+</html>
+'''
+
 app.layout = html.Div([
+    dark_mode_store,
     dcc.Store(id="app-data"),
-    dcc.Store(id="dark-mode-store", data=False),
-    # Dark mode script and style
-    html.Script(dark_mode_script),
     
     navbar,
     dbc.Container([
@@ -1243,7 +1109,7 @@ app.layout = html.Div([
                 update_button,
                 topic_selector,
                 
-                # Main content area
+                # Main content area - reorganized into a single tab for clarity
                 dbc.Tabs([
                     dbc.Tab([
                         dbc.Row([
@@ -1254,21 +1120,14 @@ app.layout = html.Div([
                             dbc.Col(tsne_card, lg=6),
                             dbc.Col(bubble_chart_card, lg=6),
                         ]),
-                    ], label="Main Visualizations", tab_id="tab-main"),
-                    
-                    dbc.Tab([
                         dbc.Row([
                             dbc.Col(ngram_chart_card, lg=6),
                             dbc.Col(topic_network_card, lg=6),
                         ]),
                         dbc.Row([
-                            dbc.Col(coherence_card),
+                            dbc.Col(article_table_card),
                         ]),
-                    ], label="Advanced Analysis", tab_id="tab-advanced"),
-                    
-                    dbc.Tab([
-                        article_table_card
-                    ], label="Article Details", tab_id="tab-articles"),
+                    ], label="Visualizations", tab_id="tab-main"),
                 ], id="main-tabs"),
                 
                 html.Footer([
@@ -1306,10 +1165,9 @@ def toggle_dark_mode(n_clicks, current_mode):
         Input("date-1d", "n_clicks"),
         Input("date-3d", "n_clicks"),
         Input("date-7d", "n_clicks"),
-        Input("date-30d", "n_clicks"),
     ],
 )
-def update_date_range(n1, n3, n7, n30):
+def update_date_range(n1, n3, n7):
     ctx = callback_context
     if not ctx.triggered:
         # Default to 7 days
@@ -1326,8 +1184,6 @@ def update_date_range(n1, n3, n7, n30):
         start_date = end_date - timedelta(days=3)
     elif button_id == "date-7d":
         start_date = end_date - timedelta(days=7)
-    elif button_id == "date-30d":
-        start_date = end_date - timedelta(days=30)
     else:
         # Default
         start_date = end_date - timedelta(days=7)
@@ -1340,37 +1196,33 @@ def update_date_range(n1, n3, n7, n30):
         Output("date-1d", "color"),
         Output("date-3d", "color"),
         Output("date-7d", "color"),
-        Output("date-30d", "color"),
     ],
     [
         Input("date-1d", "n_clicks"),
         Input("date-3d", "n_clicks"),
         Input("date-7d", "n_clicks"),
-        Input("date-30d", "n_clicks"),
     ],
 )
-def update_date_button_style(n1, n3, n7, n30):
+def update_date_button_style(n1, n3, n7):
     ctx = callback_context
     if not ctx.triggered:
         # Default to 7 days
-        return "outline-primary", "outline-primary", "primary", "outline-primary"
+        return "outline-primary", "outline-primary", "primary"
         
     button_id = ctx.triggered[0]['prop_id'].split('.')[0]
     
     if button_id == "date-1d":
-        return "primary", "outline-primary", "outline-primary", "outline-primary"
+        return "primary", "outline-primary", "outline-primary"
     elif button_id == "date-3d":
-        return "outline-primary", "primary", "outline-primary", "outline-primary"
+        return "outline-primary", "primary", "outline-primary"
     elif button_id == "date-7d":
-        return "outline-primary", "outline-primary", "primary", "outline-primary"
-    elif button_id == "date-30d":
-        return "outline-primary", "outline-primary", "outline-primary", "primary"
+        return "outline-primary", "outline-primary", "primary"
     else:
         # Default
-        return "outline-primary", "outline-primary", "primary", "outline-primary"
+        return "outline-primary", "outline-primary", "primary"
 
 # Collapsible card callbacks
-for section in ["about", "topic-dist", "word-cloud", "tsne", "bubble", "ngram", "topic-network", "coherence", "articles"]:
+for section in ["about", "topic-dist", "word-cloud", "tsne", "bubble", "ngram", "topic-network", "articles"]:
     @app.callback(
         [Output(f"{section}-collapse", "is_open"),
          Output(f"{section}-header", "children")],
@@ -1446,10 +1298,7 @@ def process_and_store_data(n_clicks, start_date, end_date, num_topics, perplexit
     for t_id in range(num_topics):
         word_clouds[t_id] = lda_model.show_topic(t_id, topn=30)
     
-    # Calculate coherence metrics
-    coherence_metrics = calculate_coherence(texts, dictionary, lda_model)
-    
-    # Calculate topic similarity
+    # Calculate topic similarity - use simplified version
     topic_similarities = calculate_topic_similarity(lda_model)
     
     # Extract ngrams
@@ -1489,8 +1338,7 @@ def process_and_store_data(n_clicks, start_date, end_date, num_topics, perplexit
     doc_topics_list = []
     for i in df.index:
         topic_weights = [0.0] * lda_model.num_topics
-        doc_topics, _, _ = lda_model[corpus[i]]  # Unpack all three values
-        for topic_id, w in doc_topics:  # Now iterate over the topic distribution
+        for topic_id, w in lda_model.get_document_topics(corpus[i]):
             topic_weights[topic_id] = w
         doc_topics_list.append(topic_weights)
     
@@ -1501,7 +1349,8 @@ def process_and_store_data(n_clicks, start_date, end_date, num_topics, perplexit
         n_components=3,
         random_state=42,
         perplexity=perplex_val,
-        n_jobs=-1,
+        n_jobs=1,  # Single thread 
+        n_iter=250,  # Reduced iterations
         learning_rate='auto'
     )
     embedded = tsne.fit_transform(doc_topics_array)
@@ -1521,7 +1370,6 @@ def process_and_store_data(n_clicks, start_date, end_date, num_topics, perplexit
         "word_clouds": word_clouds,
         "tsne_data": tsne_data,
         "ngrams": formatted_ngrams,
-        "coherence_metrics": coherence_metrics,
         "topic_similarities": topic_similarities,
         "num_topics": num_topics,
         "start_date": start_date,
@@ -1568,27 +1416,27 @@ def process_and_store_data(n_clicks, start_date, end_date, num_topics, perplexit
 # Topic button callbacks - dynamically generate callbacks for each possible topic button
 @app.callback(
     [Output(f"topic-btn-all", "className")] +
-    [Output(f"topic-btn-{i}", "className") for i in range(15)],  # Support up to 15 topics
+    [Output(f"topic-btn-{i}", "className") for i in range(10)],  # Support up to 10 topics
     [Input(f"topic-btn-all", "n_clicks")] +
-    [Input(f"topic-btn-{i}", "n_clicks") for i in range(15)],
+    [Input(f"topic-btn-{i}", "n_clicks") for i in range(10)],
     [State("app-data", "data"), State("topic-filter", "value")]
 )
 def update_active_topic(*args):
     # Extract n_clicks and data from args
-    n_clicks_list = args[:16]  # First 16 args are n_clicks
-    data = args[16]  # Next arg is app-data
-    current_filter = args[17]  # Last arg is topic-filter value
+    n_clicks_list = args[:11]  # First 11 args are n_clicks
+    data = args[11]  # Next arg is app-data
+    current_filter = args[12]  # Last arg is topic-filter value
     
     ctx = callback_context
     if not ctx.triggered or data is None:
         # Initial load, keep "All Topics" selected
-        return ["btn btn-sm btn-primary topic-btn"] + ["btn btn-sm btn-outline-secondary topic-btn"] * 15
+        return ["btn btn-sm btn-primary topic-btn"] + ["btn btn-sm btn-outline-secondary topic-btn"] * 10
     
     button_id = ctx.triggered[0]['prop_id'].split('.')[0]
     topic_id = button_id.split('-')[-1]  # Extract topic id from button id
     
     # Update active button
-    result = ["btn btn-sm btn-outline-secondary topic-btn"] * 16
+    result = ["btn btn-sm btn-outline-secondary topic-btn"] * 11
     if topic_id == "all":
         result[0] = "btn btn-sm btn-primary topic-btn"
     else:
@@ -1609,20 +1457,19 @@ def update_active_topic(*args):
      Output("bubble-chart", "figure"),
      Output("ngram-chart", "figure"),
      Output("topic-network", "figure"),
-     Output("coherence-chart", "figure"),
      Output("article-table", "data"),
      Output("topic-filter", "value")],
     [Input("app-data", "data"),
      Input("topic-btn-all", "n_clicks")] +
-    [Input(f"topic-btn-{i}", "n_clicks") for i in range(15)] +  # Support up to 15 topics
+    [Input(f"topic-btn-{i}", "n_clicks") for i in range(10)] +  # Support up to 10 topics
     [Input("topic-filter", "value"),
      Input("dark-mode-store", "data")]
 )
 def update_visualizations(data, *args):
     # Extract n_clicks, filter value, and dark mode from args
-    n_clicks_list = args[:16]  # First 16 args are topic button n_clicks
-    filter_value = args[16]  # Next arg is topic-filter value
-    dark_mode = args[17]  # Last arg is dark-mode-store value
+    n_clicks_list = args[:11]  # First 11 args are topic button n_clicks
+    filter_value = args[11]    # Next arg is topic-filter value
+    dark_mode = args[12]       # Last arg is dark-mode-store value
     
     ctx = callback_context
     triggered_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
@@ -1638,7 +1485,7 @@ def update_visualizations(data, *args):
     empty_fig = go.Figure().update_layout(**get_guardian_plot_layout("No data available", dark_mode))
     
     if data is None:
-        return empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, [], "all"
+        return empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, [], "all"
     
     # Update topic filter if a topic button was clicked
     new_filter_value = filter_value
@@ -1725,15 +1572,7 @@ def update_visualizations(data, *args):
             scene=dict(
                 xaxis=dict(showticklabels=False, title=""),
                 yaxis=dict(showticklabels=False, title=""),
-                zaxis=dict(showticklabels=False, title=""),
-                annotations=[dict(
-                    showarrow=False,
-                    x=0.05,
-                    y=0.05,
-                    z=0.05,
-                    text="Drag to rotate, scroll to zoom",
-                    font=dict(color="white" if dark_mode else "black")
-                )]
+                zaxis=dict(showticklabels=False, title="")
             )
         )
     except Exception as e:
@@ -1816,137 +1655,15 @@ def update_visualizations(data, *args):
     # Topic network chart
     try:
         if "topic_similarities" in data:
-            # Create network graph
-            G = nx.Graph()
-            
-            # Add nodes (topics)
-            for topic_id in range(data["num_topics"]):
-                # Get top words for the topic for node labels
-                top_words = [word for word, _ in data["topic_distributions"][str(topic_id)]][:3]
-                topic_label = f"Topic {topic_id}: {', '.join(top_words)}"
-                G.add_node(topic_id, label=topic_label)
-            
-            # Add edges (relationships between topics)
-            for topic1, relations in data["topic_similarities"].items():
-                for topic2, strength in relations.items():
-                    if float(strength) > 0.2:  # Only add edges for sufficiently strong relationships
-                        G.add_edge(int(topic1), int(topic2), weight=float(strength))
-            
-            # Use spring layout to position nodes
-            pos = nx.spring_layout(G, seed=42)
-            
-            # Create edge traces
-            edge_traces = []
-            for edge in G.edges():
-                x0, y0 = pos[edge[0]]
-                x1, y1 = pos[edge[1]]
-                weight = G.edges[edge]['weight']
-                
-                # Adjust line width based on weight
-                width = weight * 5
-                
-                edge_trace = go.Scatter(
-                    x=[x0, x1], 
-                    y=[y0, y1],
-                    line=dict(
-                        width=width, 
-                        color='rgba(150,150,150,0.3)' if dark_mode else 'rgba(100,100,100,0.3)'
-                    ),
-                    hoverinfo='text',
-                    text=f"Similarity: {weight:.2f}",
-                    mode='lines'
-                )
-                edge_traces.append(edge_trace)
-            
-            # Create node trace
-            node_x = []
-            node_y = []
-            node_text = []
-            node_size = []
-            node_color = []
-            
-            for node in G.nodes():
-                x, y = pos[node]
-                node_x.append(x)
-                node_y.append(y)
-                node_text.append(G.nodes[node]['label'])
-                # Size based on degree (number of connections)
-                node_size.append(10 + G.degree(node) * 5)
-                # Color based on topic ID
-                node_color.append(node)
-            
-            node_trace = go.Scatter(
-                x=node_x, 
-                y=node_y,
-                mode='markers+text',
-                marker=dict(
-                    size=node_size,
-                    color=node_color,
-                    colorscale='Viridis',
-                    line=dict(width=2, color='white' if dark_mode else 'black')
-                ),
-                text=[f"Topic {i}" for i in range(len(node_text))],
-                textposition="bottom center",
-                hoverinfo='text',
-                hovertext=node_text
-            )
-            
-            # Create the figure
-            network_fig = go.Figure(data=edge_traces + [node_trace])
-            
-            # Update layout
-            network_fig.update_layout(
-                title="Topic Similarity Network",
-                showlegend=False,
-                hovermode='closest',
-                margin=dict(b=20, l=5, r=5, t=40),
-                xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                **get_guardian_plot_layout('', dark_mode)
-            )
+            topic_network_fig = create_topic_network(data["topic_similarities"], 
+                                                  {"num_topics": data["num_topics"], 
+                                                   "show_topic": lambda i, n: data["topic_distributions"][str(i)][:n]}, 
+                                                  dark_mode)
         else:
-            network_fig = empty_fig
+            topic_network_fig = empty_fig
     except Exception as e:
         logger.error(f"Error creating topic network: {e}", exc_info=True)
-        network_fig = empty_fig
-    
-    # Coherence metrics chart
-    try:
-        if "coherence_metrics" in data:
-            coherence_df = pd.DataFrame(data["coherence_metrics"])
-            
-            # Sort by coherence
-            coherence_df = coherence_df.sort_values('coherence', ascending=False)
-            
-            # Create bar chart
-            coherence_fig = px.bar(
-                coherence_df,
-                x='topic',
-                y='coherence',
-                color='coherence',
-                title="Topic Coherence Scores",
-                labels={'topic': 'Topic', 'coherence': 'Coherence Score'},
-                color_continuous_scale='Viridis'
-            )
-            
-            # Update layout
-            coherence_fig.update_layout(**get_guardian_plot_layout('', dark_mode))
-            coherence_fig.update_layout(
-                xaxis_title="Topic",
-                yaxis_title="Coherence Score (higher is better)",
-                coloraxis_showscale=False,
-                hovermode="closest"
-            )
-            
-            # Update hover template
-            coherence_fig.update_traces(
-                hovertemplate="Topic %{x}<br>Coherence: %{y:.3f}<extra></extra>"
-            )
-        else:
-            coherence_fig = empty_fig
-    except Exception as e:
-        logger.error(f"Error creating coherence chart: {e}", exc_info=True)
-        coherence_fig = empty_fig
+        topic_network_fig = empty_fig
     
     # Article table data
     try:
@@ -1969,8 +1686,7 @@ def update_visualizations(data, *args):
         tsne_fig,
         bubble_fig,
         ngram_fig,
-        network_fig,
-        coherence_fig,
+        topic_network_fig,
         articles,
         new_filter_value
     )
