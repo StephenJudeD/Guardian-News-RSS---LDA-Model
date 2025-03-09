@@ -742,14 +742,22 @@ app.layout = dbc.Container(
         dbc.Row([dbc.Col(about_card)], className="mt-3"),
         controls_row,
         
-        # Main visualizations - each in its own row
-        dbc.Row([dbc.Col(topic_dist_card, width=12)]),  # Topic Distribution
-        dbc.Row([dbc.Col(coherence_card, width=12)]),  # Coherence Chart
-        dbc.Row([dbc.Col(wordcloud_card, width=12)]),  # Word Cloud
-        dbc.Row([dbc.Col(ngram_chart_card, width=12)]),  # Ngram Radar
-        dbc.Row([dbc.Col(tsne_3d_card, width=12)]),  # 3D t-SNE
-        dbc.Row([dbc.Col(bubble_chart_card, width=12)]),  # Bubble Chart
-        dbc.Row([dbc.Col(article_table_card, width=12)]),  # Article Table
+        # Main visualizations
+        dbc.Row([
+            dbc.Col(topic_dist_card, md=7),
+            dbc.Col(coherence_card, md=5),
+        ]),
+        
+        dbc.Row([
+            dbc.Col(wordcloud_card, md=6),
+            dbc.Col(ngram_chart_card, md=6),
+        ]),
+        
+        dbc.Row([dbc.Col(tsne_3d_card)]),
+        
+        dbc.Row([dbc.Col(bubble_chart_card)]),
+        
+        dbc.Row([dbc.Col(article_table_card)]),
         
         html.Footer(
             html.P(
