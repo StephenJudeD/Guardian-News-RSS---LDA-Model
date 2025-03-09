@@ -1,5 +1,5 @@
 import dash
-from dash import Dash, html, dcc, Input, Output, dash_table, State, callback_context
+from dash import Dash, html, dcc, Input, Output, dash_table
 import dash_bootstrap_components as dbc
 import plotly.express as px
 import plotly.graph_objects as go
@@ -7,8 +7,10 @@ from guardian_fetcher import GuardianFetcher
 from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
+
 from gensim import corpora, models
 from gensim.models.phrases import Phrases, Phraser
+
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
 from sklearn.manifold import TSNE
@@ -21,7 +23,7 @@ import logging
 
 # Logging setup
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[logging.FileHandler('app.log'), logging.StreamHandler()]
 )
@@ -34,7 +36,7 @@ CUSTOM_STOP_WORDS = {
     'told', 'reuters', 'guardian', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
     'week', 'month', 'us', 'people', 'government', 'could', 'will', 'may', 'trump', 'published', 'article', 'editor',
     'nt', 'dont', 'doesnt', 'cant', 'couldnt', 'shouldnt', 'last', 'well', 'still', 'price',
-    'breaking', 'update', 'live', 'say', 'going', 'think', 'know', 'just', 'now', 'even', 'taking', 'back'
+    'breaking', 'update', 'live', 'say'
 }
 
 # Environment variables & NLTK
@@ -53,49 +55,31 @@ guardian = GuardianFetcher(GUARDIAN_API_KEY)
 
 # Dash Setup
 external_stylesheets = [dbc.themes.BOOTSTRAP]
-app = Dash(
-    __name__, 
-    external_stylesheets=external_stylesheets,
-    meta_tags=[
-        {"name": "viewport", "content": "width=device-width, initial-scale=1"}
-    ]
-)
+app = Dash(__name__, external_stylesheets=external_stylesheets)
 server = app.server
 app.config.suppress_callback_exceptions = True
 
-# Guardian Theme Colors
-GUARDIAN_COLORS = {
-    "blue": "#005689",
-    "blue_light": "#00b2ff",
-    "red": "#c70000",
-    "yellow": "#ffbb00",
-    "background": "#f6f6f6",
-    "border": "#dcdcdc",
-}
-
-def get_plot_layout(fig_title=""):
+# Guardian Theme Plot Layout Helper
+def get_guardian_plot_layout(fig_title=""):
     """Return a default layout for Guardian-themed figures."""
     return dict(
         paper_bgcolor="white",
         plot_bgcolor="#f6f6f6",
-        font=dict(
-            family="Georgia, serif", 
-            size=16,
-            color="#333333"
-        ),
+        font=dict(family="Georgia, serif", size=16),
         title=dict(text=fig_title, font=dict(size=20)),
         margin=dict(l=40, r=40, t=50, b=40),
-        colorway=[
-            "#005689", "#c70000", "#ffbb00", "#00b2ff", "#90dcff", 
-            "#ff5b5b", "#4bc6df", "#aad801", "#43853d", "#767676"
-        ],
+        colorway=["#005689", "#c70000", "#ffbb00", "#00b2ff", "#90dcff", "#ff5b5b", "#4bc6df", "#aad801", "#43853d", "#767676"],
+        xaxis=dict(gridcolor="#dcdcdc", zerolinecolor="#dcdcdc", showgrid=True, showline=True, linecolor="#dcdcdc", title_font=dict(size=16), tickfont=dict(size=14)),
+        yaxis=dict(gridcolor="#dcdcdc", zerolinecolor="#dcdcdc", showgrid=True, showline=True, linecolor="#dcdcdc", title_font=dict(size=16), tickfont=dict(size=14)),
     )
 
 # Data Processing
 @lru_cache(maxsize=64)
-def process_articles(start_date, end_date, num_topics=3):
+def process_articles(start_date, end_date, num_topics=5):
     """
-    Process and model Guardian articles.
+    Fetch Guardian articles in the given date range,
+    then tokenize, detect bigrams/trigrams, and train LDA on the entire set.
+    Returns (df, texts, dictionary, corpus, lda_model).
     """
     try:
         logger.info(f"Fetching articles from {start_date} to {end_date} with num_topics={num_topics}")
@@ -104,8 +88,7 @@ def process_articles(start_date, end_date, num_topics=3):
         end_date_dt = datetime.strptime(end_date, '%Y-%m-%d').date()
         days_back = (datetime.now().date() - start_date_dt).days + 1
 
-        # Fetch articles
-        df = guardian.fetch_articles(days_back=days_back, page_size=50)
+        df = guardian.fetch_articles(days_back=days_back, page_size=200)
         if df.empty:
             logger.warning("No articles fetched!")
             return None, None, None, None, None
@@ -131,7 +114,7 @@ def process_articles(start_date, end_date, num_topics=3):
             words = word_tokenize(str(content))
             filtered = [
                 w.lower() for w in words
-                if w.isalnum() and len(w) > 2 and w.lower() not in stop_words
+                if w.isalnum() and w.lower() not in stop_words
             ]
             tokenized_texts.append(filtered)
 
@@ -149,17 +132,14 @@ def process_articles(start_date, end_date, num_topics=3):
 
         # Dictionary & Corpus
         dictionary = corpora.Dictionary(texts)
-        dictionary.filter_extremes(no_below=3, no_above=0.85)
         corpus = [dictionary.doc2bow(t) for t in texts]
 
-        # Train LDA
+        # Train LDA with dynamic num_topics
         lda_model = models.LdaModel(
             corpus=corpus,
             num_topics=num_topics,
             id2word=dictionary,
-            passes=3,
-            iterations=30,
-            alpha='auto',
+            passes=10,
             random_state=42,
             chunksize=100
         )
@@ -171,679 +151,424 @@ def process_articles(start_date, end_date, num_topics=3):
         logger.error(f"Error in process_articles: {e}", exc_info=True)
         return None, None, None, None, None
 
-# Layout Components
-navbar = dbc.Navbar(
-    dbc.Container([
-        html.A(
-            dbc.Row([
-                dbc.Col(html.Img(src="https://static.guim.co.uk/sys-images/Guardian/Pix/pictures/2010/03/01/poweredbyguardianBLACK.png", height="30px"), width="auto"),
-                dbc.Col(dbc.NavbarBrand("Guardian News Topic Explorer")),
-            ], align="center"),
-            href="#",
-        ),
-    ]),
-    color="primary",
-    dark=True,
-)
-
-about_card = dbc.Card([
-    dbc.CardHeader("About This Dashboard"),
-    dbc.CardBody(
-        html.P([
-            """This dashboard fetches articles from The Guardian's API, 
-            processes them with Natural Language Processing (LDA topic modeling), 
-            and visualizes how news topics emerge and evolve over time.""",
-            html.A(
-                "Learn more on GitHub",
-                href="https://github.com/StephenJudeD/Guardian-News-RSS---LDA-Model",
-                target="_blank"
-            )
-        ])
-    )
-])
-
-date_controls = dbc.Card([
-    dbc.CardHeader("Date Range Selection"),
-    dbc.CardBody([
-        dbc.ButtonGroup([
-            dbc.Button("Last Day", id="date-1d", n_clicks=0, color="outline-primary"),
-            dbc.Button("Last 3 Days", id="date-3d", n_clicks=0, color="outline-primary"),
-            dbc.Button("Last Week", id="date-7d", n_clicks=0, color="primary"),
-        ]),
-        html.Br(),
-        html.Br(),
-        dbc.Row([
-            dbc.Col([
-                dbc.Label("Start Date", html_for="start-date"),
-                dbc.Input(
-                    type="date", 
-                    id="start-date", 
-                    value=(datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
-                ),
-            ]),
-            dbc.Col([
-                dbc.Label("End Date", html_for="end-date"),
-                dbc.Input(
-                    type="date", 
-                    id="end-date", 
-                    value=datetime.now().strftime('%Y-%m-%d')
-                ),
-            ]),
-        ]),
-    ])
-])
-
-topic_controls = dbc.Card([
-    dbc.CardHeader("LDA Topic Settings"),
-    dbc.CardBody([
-        dbc.Label("Number of Topics", html_for="num-topics-slider"),
-        dcc.Slider(
-            id="num-topics-slider",
-            min=2,
-            max=10,
-            step=1,
-            value=5,
-            marks={i: str(i) for i in range(2, 11)},
-            tooltip={"placement": "bottom", "always_visible": True},
-        ),
-    ])
-])
-
-tsne_controls = dbc.Card([
-    dbc.CardHeader("t-SNE Visualization Settings"),
-    dbc.CardBody([
-        dbc.Label("Perplexity", html_for="tsne-perplexity-slider"),
-        dcc.Slider(
-            id="tsne-perplexity-slider",
-            min=5,
-            max=40,
-            step=5,
-            value=30,
-            marks={i: str(i) for i in range(5, 41, 5)},
-            tooltip={"placement": "bottom", "always_visible": True},
-        ),
-    ])
-])
-
-topic_selector = dbc.Card([
-    dbc.CardHeader("Topic Explorer"),
-    dbc.CardBody([
-        html.Div(id="topic-buttons"),
-        html.P("Select a topic to focus visualizations.")
-    ])
-], id="topic-selector-card", style={"display": "none"})
-
-topic_distribution_card = dbc.Card([
-    dbc.CardHeader("Topic Word Distributions"),
-    dbc.CardBody(
-        dcc.Loading(
-            dcc.Graph(id="topic-distribution", config={'displayModeBar': True})
-        )
-    )
-])
-
-word_cloud_card = dbc.Card([
-    dbc.CardHeader("Topic Word Cloud"),
-    dbc.CardBody(
-        dcc.Loading(
-            dcc.Graph(id="word-cloud", config={'displayModeBar': False})
-        )
-    )
-])
-
-tsne_card = dbc.Card([
-    dbc.CardHeader("3D Topic Clustering (t-SNE)"),
-    dbc.CardBody(
-        dcc.Loading(
-            dcc.Graph(id="tsne-plot", config={'displayModeBar': True})
-        )
-    )
-])
-
-bubble_chart_card = dbc.Card([
-    dbc.CardHeader("Document Length Over Time"),
-    dbc.CardBody(
-        dcc.Loading(
-            dcc.Graph(id="bubble-chart", config={'displayModeBar': True})
-        )
-    )
-])
-
-ngram_chart_card = dbc.Card([
-    dbc.CardHeader("Bigrams & Trigrams (Radar)"),
-    dbc.CardBody(
-        dcc.Loading(
-            dcc.Graph(id="ngram-chart", config={'displayModeBar': True})
-        )
-    )
-])
-
-topic_network_card = dbc.Card([
-    dbc.CardHeader("Topic Network"),
-    dbc.CardBody(
-        dcc.Loading(
-            dcc.Graph(id="topic-network", config={'displayModeBar': True})
-        )
-    )
-])
-
-article_table_card = dbc.Card([
-    dbc.CardHeader("Article Details"),
-    dbc.CardBody([
-        dbc.Row([
-            dbc.Col(html.Div(id="article-count"), width=8),
-            dbc.Col([
-                dbc.InputGroup([
-                    dbc.InputGroupText("Filter by topic"),
-                    dbc.Select(
-                        id="topic-filter",
-                        options=[
-                            {"label": "All Topics", "value": "all"}
-                        ],
-                        value="all"
-                    )
-                ])
-            ], width=4)
-        ]),
-        html.Br(),
-        dash_table.DataTable(
-            id="article-table",
-            columns=[
-                {"name": "Title", "id": "title", "presentation": "markdown"},
-                {"name": "Published", "id": "published"},
-                {"name": "Topics", "id": "topics", "presentation": "markdown"},
-            ],
-            page_size=10,
-            page_action="native",
-            sort_action="native",
-            filter_action="native",
-        ),
-    ]),
-])
-
-# Simplified app layout
-app.layout = html.Div([
-    dcc.Store(id="app-data"),
-    dcc.Interval(id="auto-load", interval=1000, n_intervals=0),  # Auto-load trigger
-    
-    navbar,
-    dbc.Container([
-        html.Br(),
-        dbc.Row([
-            dbc.Col([
-                about_card,
-                html.Br(),
-                dbc.Row([
-                    dbc.Col(date_controls, md=4),
-                    dbc.Col(topic_controls, md=4),
-                    dbc.Col(tsne_controls, md=4),
-                ]),
-                html.Br(),
-                topic_selector,
-                html.Br(),
-                
-                # All visualizations in one tab for simplicity
-                dbc.Row([
-                    dbc.Col(topic_distribution_card, md=6),
-                    dbc.Col(word_cloud_card, md=6),
-                ]),
-                html.Br(),
-                dbc.Row([
-                    dbc.Col(tsne_card, md=6),
-                    dbc.Col(bubble_chart_card, md=6),
-                ]),
-                html.Br(),
-                dbc.Row([
-                    dbc.Col(ngram_chart_card, md=6),
-                    dbc.Col(topic_network_card, md=6),
-                ]),
-                html.Br(),
-                article_table_card,
-                
-                html.Footer([
-                    html.Hr(),
-                    html.P([
-                        "Data sourced from ",
-                        html.A("The Guardian Open Platform", href="https://open-platform.theguardian.com/", target="_blank"),
-                        ". This dashboard is for educational purposes only."
-                    ], style={"textAlign": "center"})
-                ])
-            ])
-        ])
-    ], fluid=True)
-])
-
-# Callbacks
-@app.callback(
-    [Output("start-date", "value"), Output("end-date", "value")],
-    [
-        Input("date-1d", "n_clicks"),
-        Input("date-3d", "n_clicks"),
-        Input("date-7d", "n_clicks"),
-    ],
-)
-def update_date_range(n1, n3, n7):
-    ctx = callback_context
-    if not ctx.triggered:
-        # Default to 7 days
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=7)
-        return start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')
-        
-    button_id = ctx.triggered[0]['prop_id'].split('.')[0]
-    end_date = datetime.now()
-    
-    if button_id == "date-1d":
-        start_date = end_date - timedelta(days=1)
-    elif button_id == "date-3d":
-        start_date = end_date - timedelta(days=3)
-    elif button_id == "date-7d":
-        start_date = end_date - timedelta(days=7)
-    else:
-        # Default
-        start_date = end_date - timedelta(days=7)
-        
-    return start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')
-
-# Auto-load data when inputs change
-@app.callback(
-    [Output("app-data", "data"),
-     Output("topic-buttons", "children"),
-     Output("topic-selector-card", "style"),
-     Output("topic-filter", "options"),
-     Output("article-count", "children")],
-    [Input("start-date", "value"),
-     Input("end-date", "value"),
-     Input("num-topics-slider", "value"),
-     Input("tsne-perplexity-slider", "value"),
-     Input("auto-load", "n_intervals")]
-)
-def auto_load_data(start_date, end_date, num_topics, perplexity, n_intervals):
-    # Process articles
-    df, texts, dictionary, corpus, lda_model = process_articles(start_date, end_date, num_topics)
-    
-    if df is None or df.empty:
-        return None, [], {"display": "none"}, [{"label": "All Topics", "value": "all"}], "No articles found for the selected date range."
-    
-    # Process document lengths and dominant topics
-    doc_lengths = []
-    doc_dominant_topics = []
-    doc_topic_distributions = []
-    
-    for i in df.index:
-        doc_topics = lda_model.get_document_topics(corpus[i])
-        n_tokens = len(texts[i] if texts[i] else [])
-        doc_lengths.append(n_tokens)
-        
-        # Store dominant topic
-        if doc_topics:
-            best_t = max(doc_topics, key=lambda x: x[1])[0]
-        else:
-            best_t = -1
-        doc_dominant_topics.append(best_t)
-        
-        # Store topic distribution
-        topic_dist = {t_id: 0.0 for t_id in range(num_topics)}
-        for t_id, weight in doc_topics:
-            topic_dist[t_id] = weight
-        doc_topic_distributions.append(topic_dist)
-    
-    df["doc_length"] = doc_lengths
-    df["dominant_topic"] = doc_dominant_topics
-    
-    # Extract topic word distributions
-    topic_distributions = {}
-    for t_id in range(num_topics):
-        topic_distributions[t_id] = lda_model.show_topic(t_id, topn=10)
-    
-    # Create word clouds for each topic
-    word_clouds = {}
-    for t_id in range(num_topics):
-        word_clouds[t_id] = lda_model.show_topic(t_id, topn=30)
-    
-    # Extract ngrams
-    ngram_counts = {}
-    for tokens in texts:
-        for tok in tokens:
-            if "_" in tok:
-                ngram_counts[tok] = ngram_counts.get(tok, 0) + 1
-    
-    sorted_ngrams = sorted(ngram_counts.items(), key=lambda x: x[1], reverse=True)
-    top_ngrams = sorted_ngrams[:15]
-    
-    # Prepare ngram data
-    formatted_ngrams = []
-    for ngram, count in top_ngrams:
-        formatted = ngram.replace('_', ' ')
-        formatted_ngrams.append({"ngram": formatted, "count": count})
-    
-    # Prepare article data for table
-    articles = []
-    for i in df.index:
-        doc_topics = lda_model.get_document_topics(corpus[i])
-        topics_formatted = []
-        for t_id, weight in sorted(doc_topics, key=lambda x: x[1], reverse=True)[:3]:  # Top 3 topics
-            topics_formatted.append(f"**Topic {t_id}**: {weight:.3f}")
-        
-        articles.append({
-            "title": df.at[i, "title"],
-            "published": df.at[i, "published"].strftime("%Y-%m-%d %H:%M"),
-            "topics": "<br>".join(topics_formatted),
-            "doc_length": df.at[i, "doc_length"],
-            "dominant_topic": int(df.at[i, "dominant_topic"]),
-            "topic_distribution": doc_topic_distributions[i]
-        })
-    
-    # Prepare t-SNE data
-    doc_topics_list = []
-    for i in df.index:
-        topic_weights = [0.0] * lda_model.num_topics
-        for topic_id, w in lda_model.get_document_topics(corpus[i]):
-            topic_weights[topic_id] = w
-        doc_topics_list.append(topic_weights)
-    
-    doc_topics_array = np.array(doc_topics_list, dtype=np.float32)
-    
-    perplex_val = min(perplexity, max(2, len(doc_topics_array) - 1))
-    tsne = TSNE(
-        n_components=3,  # Keeping 3D t-SNE
-        random_state=42,
-        perplexity=perplex_val,
-        n_jobs=1,
-        n_iter=250,
-        learning_rate='auto'
-    )
-    embedded = tsne.fit_transform(doc_topics_array)
-    
-    tsne_data = {
-        "x": embedded[:, 0].tolist(),
-        "y": embedded[:, 1].tolist(),
-        "z": embedded[:, 2].tolist(),  # Keeping z dimension for 3D
-        "topic": [int(t) for t in doc_dominant_topics],
-        "title": df["title"].tolist()
-    }
-    
-    # Store all data
-    data = {
-        "articles": articles,
-        "topic_distributions": topic_distributions,
-        "word_clouds": word_clouds,
-        "tsne_data": tsne_data,
-        "ngrams": formatted_ngrams,
-        "num_topics": num_topics,
-        "start_date": start_date,
-        "end_date": end_date,
-        "perplexity": perplexity
-    }
-    
-    # Create topic buttons
-    buttons = [
-        html.Button(
-            "All Topics",
-            id="topic-btn-all",
-            style={"margin": "5px", "backgroundColor": "#005689", "color": "white"},
-            n_clicks=0
-        )
-    ]
-    
-    for i in range(num_topics):
-        buttons.append(
-            html.Button(
-                f"Topic {i}",
-                id=f"topic-btn-{i}",
-                style={"margin": "5px"},
-                n_clicks=0
-            )
-        )
-    
-    # Create topic filter options
-    filter_options = [{"label": "All Topics", "value": "all"}]
-    for i in range(num_topics):
-        filter_options.append({"label": f"Topic {i}", "value": str(i)})
-    
-    # Show topic selector
-    selector_style = {"display": "block"}
-    
-    # Article count message
-    count_message = html.Div([
-        html.Strong(f"Found {len(articles)} articles"),
-        html.Span(f" from {start_date} to {end_date}")
-    ])
-    
-    return data, buttons, selector_style, filter_options, count_message
-
-# Update visualizations based on app data
-@app.callback(
-    [Output("topic-distribution", "figure"),
-     Output("word-cloud", "figure"),
-     Output("tsne-plot", "figure"),
-     Output("bubble-chart", "figure"),
-     Output("ngram-chart", "figure"),
-     Output("topic-network", "figure"),
-     Output("article-table", "data"),
-     Output("topic-filter", "value")],
-    [Input("app-data", "data"),
-     Input("topic-btn-all", "n_clicks")] +
-    [Input(f"topic-btn-{i}", "n_clicks") for i in range(10)] +  # Support up to 10 topics
-    [Input("topic-filter", "value")]
-)
-def update_visualizations(data, *args):
-    # Extract n_clicks and filter
-    n_clicks_list = args[:11]  # First 11 args are topic button n_clicks
-    filter_value = args[11]    # Last arg is topic-filter value
-    
-    ctx = callback_context
-    triggered_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
-    
-    # Determine selected topic
-    selected_topic = "all"
-    if triggered_id and triggered_id.startswith("topic-btn-"):
-        selected_topic = triggered_id.split('-')[-1]
-    elif triggered_id == "topic-filter":
-        selected_topic = filter_value
-    
-    # Default empty figures
-    empty_fig = go.Figure()
-    empty_fig.update_layout(title="No data available")
-    
-    if data is None:
-        return empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, [], "all"
-    
-    # Update topic filter if a topic button was clicked
-    new_filter_value = filter_value
-    if triggered_id and triggered_id.startswith("topic-btn-"):
-        new_filter_value = selected_topic
-    
-    # Topic distributions visualization
+# Visualization Helpers
+def create_word_cloud(topic_words):
+    """Create a word cloud from LDA topic-word pairs."""
     try:
-        topic_dist_data = []
-        for topic_id, words in data["topic_distributions"].items():
-            for word, weight in words:
-                topic_dist_data.append({
-                    "topic": f"Topic {topic_id}",
-                    "word": word,
-                    "weight": weight
-                })
-        
-        df_topic_dist = pd.DataFrame(topic_dist_data)
-        
-        topic_dist_fig = px.bar(
-            df_topic_dist,
-            x="weight",
-            y="word",
-            color="topic",
-            orientation="h",
-            title="Topic Word Distributions (Top Terms)",
-            labels={"weight": "Term Weight", "word": "", "topic": "Topic"},
-            height=500
-        )
-        
-        topic_dist_fig.update_layout(**get_plot_layout(""))
-        topic_dist_fig.update_layout(yaxis=dict(autorange="reversed"))
-    except Exception as e:
-        logger.error(f"Error creating topic distribution: {e}", exc_info=True)
-        topic_dist_fig = empty_fig
-    
-    # Word cloud visualization
-    try:
-        if selected_topic == "all":
-            # For "all", use topic 0
-            word_cloud_topic = 0
-        else:
-            word_cloud_topic = int(selected_topic)
-        
-        if word_cloud_topic < len(data["word_clouds"]):
-            word_cloud_fig = create_word_cloud(data["word_clouds"][str(word_cloud_topic)])
-        else:
-            word_cloud_fig = empty_fig
+        freq_dict = dict(topic_words)
+        wc = WordCloud(background_color="white", width=800, height=400, colormap="Blues", max_words=50, prefer_horizontal=0.9).generate_from_frequencies(freq_dict)
+        fig = px.imshow(wc)
+        fig.update_layout(**get_guardian_plot_layout("Topic Word Cloud"))
+        fig.update_xaxes(showticklabels=False)
+        fig.update_yaxes(showticklabels=False)
+        return fig
     except Exception as e:
         logger.error(f"Error creating word cloud: {e}", exc_info=True)
-        word_cloud_fig = empty_fig
-    
-    # 3D t-SNE visualization
+        fig = go.Figure()
+        fig.update_layout(**get_guardian_plot_layout(f"Error creating word cloud: {e}"))
+        return fig
+
+def create_tsne_visualization_3d(df, corpus, lda_model, perplexity=30):
+    """3D t-SNE scatter (Plotly)."""
     try:
-        tsne_fig = go.Figure(data=[
-            go.Scatter3d(
-                x=data["tsne_data"]["x"],
-                y=data["tsne_data"]["y"],
-                z=data["tsne_data"]["z"],  # Using z dimension for 3D
-                mode="markers",
-                marker=dict(
-                    size=5,
-                    color=data["tsne_data"]["topic"],
-                    colorscale="Viridis",
-                    opacity=0.8
-                ),
-                text=data["tsne_data"]["title"],
-                hoverinfo="text"
-            )
-        ])
-        
-        tsne_fig.update_layout(**get_plot_layout("3D Topic Clustering (t-SNE)"))
-        tsne_fig.update_layout(
-            scene=dict(
-                xaxis=dict(title="", showticklabels=False),
-                yaxis=dict(title="", showticklabels=False),
-                zaxis=dict(title="", showticklabels=False)
-            )
-        )
+        if df is None or len(df) < 2:
+            fig = go.Figure()
+            fig.update_layout(**get_guardian_plot_layout("Not enough documents for t-SNE"))
+            return fig
+
+        doc_topics_list = []
+        for i in df.index:
+            topic_weights = [0.0]*lda_model.num_topics
+            for topic_id, w in lda_model[corpus[i]]:
+                topic_weights[topic_id] = w
+            doc_topics_list.append(topic_weights)
+
+        doc_topics_array = np.array(doc_topics_list, dtype=np.float32)
+        if len(doc_topics_array) < 2:
+            fig = go.Figure()
+            fig.update_layout(**get_guardian_plot_layout("Not enough docs for t-SNE"))
+            return fig
+
+        perplex_val = min(perplexity, max(2, len(doc_topics_array) - 1))
+        tsne = TSNE(n_components=3, random_state=42, perplexity=perplex_val, n_jobs=1)
+        embedded = tsne.fit_transform(doc_topics_array)
+
+        scatter_df = pd.DataFrame({
+            'x': embedded[:, 0],
+            'y': embedded[:, 1],
+            'z': embedded[:, 2],
+            'dominant_topic': [np.argmax(row) for row in doc_topics_array],
+            'doc_index': df.index,
+            'title': df['title']
+        })
+
+        fig = px.scatter_3d(scatter_df, x='x', y='y', z='z', color='dominant_topic', hover_data=['title'], title=f'3D t-SNE Topic Clustering (Perplexity={perplex_val})')
+        fig.update_layout(**get_guardian_plot_layout())
+        return fig
     except Exception as e:
-        logger.error(f"Error creating t-SNE: {e}", exc_info=True)
-        tsne_fig = empty_fig
-    
-    # Bubble chart visualization
+        logger.error(f"Error creating 3D t-SNE: {e}", exc_info=True)
+        fig = go.Figure()
+        fig.update_layout(**get_guardian_plot_layout(f"Error creating 3D t-SNE: {e}"))
+        return fig
+
+def create_bubble_chart(df):
+    """Bubble chart: doc length vs published date, sized by doc length, colored by dominant_topic."""
     try:
-        bubble_data = data["articles"]
-        if selected_topic != "all":
-            bubble_data = [a for a in bubble_data if str(a["dominant_topic"]) == selected_topic]
-        
-        bubble_df = pd.DataFrame(bubble_data)
-        if not bubble_df.empty:
-            bubble_df["published"] = pd.to_datetime(bubble_df["published"])
-            
-            bubble_fig = px.scatter(
-                bubble_df,
-                x="published",
-                y="doc_length",
-                size="doc_length",
-                color="dominant_topic",
-                size_max=20,
-                hover_name="title",
-                title="Document Length Over Time",
-                labels={
-                    "published": "Publication Date",
-                    "doc_length": "Article Length (tokens)",
-                    "dominant_topic": "Dominant Topic"
-                }
-            )
-            
-            bubble_fig.update_layout(**get_plot_layout(""))
-            bubble_fig.update_layout(
-                yaxis=dict(type="log"),
-                xaxis=dict(
-                    title="Publication Date",
-                    tickformat="%d %b %Y"
-                )
-            )
-        else:
-            bubble_fig = empty_fig
+        if df is None or df.empty:
+            fig = go.Figure()
+            fig.update_layout(**get_guardian_plot_layout("Bubble Chart Unavailable"))
+            return fig
+
+        cut_off = df['doc_length'].quantile(0.95)
+        filtered_df = df[df['doc_length'] <= cut_off].copy()
+        if filtered_df.empty:
+            fig = go.Figure()
+            fig.update_layout(**get_guardian_plot_layout("No Data after outlier removal"))
+            return fig
+
+        fig = px.scatter(filtered_df, x='published', y='doc_length', size='doc_length', color='dominant_topic', size_max=30, hover_data=['title'], title='Document Length Bubble Chart (w/ Outlier Removal & Log Scale)', log_y=True)
+        fig.update_layout(**get_guardian_plot_layout())
+        return fig
     except Exception as e:
         logger.error(f"Error creating bubble chart: {e}", exc_info=True)
-        bubble_fig = empty_fig
-    
-    # Ngram radar chart
+        fig = go.Figure()
+        fig.update_layout(**get_guardian_plot_layout(f"Error creating bubble chart: {e}"))
+        return fig
+
+def create_ngram_radar_chart(texts):
+    """Radar (sonar) chart of the most common bigrams/trigrams (top 10)."""
     try:
-        ngram_df = pd.DataFrame(data["ngrams"])
-        
-        ngram_fig = px.line_polar(
-            ngram_df,
-            r="count",
-            theta="ngram",
-            line_close=True,
-            title="Top Bigrams & Trigrams"
-        )
-        
-        ngram_fig.update_traces(
-            fill='toself',
-            fillcolor=f"rgba({0},{86},{137},{0.3})"  # Semi-transparent guardian blue
-        )
-        
-        ngram_fig.update_layout(**get_plot_layout(""))
-        ngram_fig.update_layout(
-            polar=dict(
-                radialaxis=dict(
-                    visible=True,
-                    range=[0, max(ngram_df["count"]) * 1.1]
-                ),
-                angularaxis=dict(
-                    tickfont=dict(size=11)
-                )
+        ngram_counts = {}
+        for tokens in texts:
+            for tok in tokens:
+                if "_" in tok:
+                    ngram_counts[tok] = ngram_counts.get(tok, 0) + 1
+
+        if not ngram_counts:
+            fig = go.Figure()
+            fig.update_layout(**get_guardian_plot_layout("No bigrams/trigrams found"))
+            return fig
+
+        sorted_ngrams = sorted(ngram_counts.items(), key=lambda x: x[1], reverse=True)
+        top_ngrams = sorted_ngrams[:10]
+        df_ngram = pd.DataFrame(top_ngrams, columns=["ngram", "count"])
+
+        fig = px.line_polar(df_ngram, r="count", theta="ngram", line_close=True, title="Top Bigrams & Trigrams (Radar Chart)")
+        fig.update_traces(fill='toself')
+        fig.update_layout(**get_guardian_plot_layout())
+        return fig
+    except Exception as e:
+        logger.error(f"Error creating ngram radar chart: {e}", exc_info=True)
+        fig = go.Figure()
+        fig.update_layout(**get_guardian_plot_layout(f"Error creating ngram radar chart: {e}"))
+        return fig
+
+# Layout
+navbar = dbc.Navbar(
+    dbc.Container(
+        [
+            dbc.Row(
+                [
+                    dbc.Col(html.Img(src="https://static.guim.co.uk/sys-images/Guardian/Pix/pictures/2010/03/01/poweredbyguardianBLACK.png", height="32px", className="mr-2"), width="auto"),
+                    dbc.Col(html.H1("Guardian News Topic Explorer", className="mb-0 text-white", style={"fontSize": "24px"}), width="auto"),
+                ],
+                align="center",
+                className="g-0",
             ),
-            showlegend=False
-        )
-    except Exception as e:
-        logger.error(f"Error creating ngram chart: {e}", exc_info=True)
-        ngram_fig = empty_fig
-    
-    # Topic network chart
-    try:
-        if "topic_similarities" in data:
-            topic_network_fig = create_topic_network(
-                data["topic_similarities"], 
-                {"num_topics": data["num_topics"], 
-                 "show_topic": lambda i, n: data["topic_distributions"][str(i)][:n]}
+        ],
+        fluid=True
+    ),
+    className="mb-4",
+    dark=True,
+    color="primary"
+)
+
+explainer_card = dbc.Card(
+    [
+        dbc.CardHeader("About This App", className="bg-primary text-white", style={"fontSize": "20px"}),
+        dbc.CardBody(
+            [
+                html.P(
+                    [
+                        "This dashboard fetches articles from the Guardian's RSS, processes them with "
+                        "Natural Language Processing (NLP), and then applies techniques like LDA for topic modeling, "
+                        "bigrams/trigrams detection for multi-word phrases, and t-SNE for visualizing clusters in 3D. "
+                        "Use the controls below to explore the data: date range, dynamic LDA topic counts, perplexity, "
+                        "and more. See how news stories shift over time! ",
+                        html.A("Code & Readme available @ GitHub", href="https://github.com/StephenJudeD/Guardian-News-RSS---LDA-Model/tree/main", target="_blank", style={"textDecoration": "underline", "color": "#005689"}),
+                    ],
+                    className="mb-0",
+                    style={"fontSize": "16px"}
+                )
+            ]
+        ),
+    ],
+    className="mb-3",
+)
+
+date_filter_card = dbc.Card(
+    [
+        dbc.CardHeader("Select Date Range", className="bg-primary text-white", style={"fontSize": "20px"}),
+        dbc.CardBody([
+            dbc.RadioItems(
+                id='date-select-buttons',
+                options=[
+                    {'label': 'Last Day', 'value': 'last_day', 'style': {'fontSize': '16px'}},
+                    {'label': 'Last 3 Days', 'value': 'last_three', 'style': {'fontSize': '16px'}},
+                    {'label': 'Last Week', 'value': 'last_week', 'style': {'fontSize': '16px'}},
+                ],
+                value='last_week',
+                inline=True,
+                className="mb-3"
+            ),
+            dcc.DatePickerRange(
+                id='date-range',
+                start_date=(datetime.now() - timedelta(days=7)).date(),
+                end_date=datetime.now().date(),
+                style={'fontSize': '16px'}
             )
-        else:
-            topic_network_fig = empty_fig
-    except Exception as e:
-        logger.error(f"Error creating topic network: {e}", exc_info=True)
-        topic_network_fig = empty_fig
-    
-    # Article table data
+        ]),
+    ],
+    className="mb-2",
+)
+
+num_topics_card = dbc.Card(
+    [
+        dbc.CardHeader("LDA: Number of Topics", className="bg-primary text-white", style={"fontSize": "20px"}),
+        dbc.CardBody([
+            dcc.Slider(
+                id="num-topics-slider",
+                min=2,
+                max=15,
+                value=5,
+                step=1,
+                marks={i: str(i) for i in range(2, 16)},
+                tooltip={"placement": "bottom", "always_visible": True},
+                className="mb-2"
+            ),
+        ]),
+    ],
+    className="mb-2",
+)
+
+tsne_controls_card = dbc.Card(
+    [
+        dbc.CardHeader("t-SNE Perplexity", className="bg-primary text-white", style={"fontSize": "20px"}),
+        dbc.CardBody([
+            dcc.Slider(
+                id='tsne-perplexity-slider',
+                min=5,
+                max=50,
+                step=5,
+                value=30,
+                marks={i: str(i) for i in range(5, 51, 5)},
+                tooltip={"placement": "bottom", "always_visible": True},
+            ),
+        ]),
+    ],
+    className="mb-2",
+)
+
+controls_row = dbc.Row(
+    [
+        dbc.Col(date_filter_card, md=4),
+        dbc.Col(num_topics_card, md=4),
+        dbc.Col(tsne_controls_card, md=4),
+    ],
+    className="my-2 px-2"
+)
+
+topic_dist_card = dbc.Card(
+    [
+        dbc.CardHeader("Topic Word Distributions (Top 10)", className="bg-primary text-white", style={"fontSize": "20px"}),
+        dbc.CardBody(dcc.Loading(id="loading-topic-dist", type="circle", children=[dcc.Graph(id='topic-distribution', style={"height": "600px"})]))
+    ],
+    className="mb-3",
+)
+
+tsne_3d_card = dbc.Card(
+    [
+        dbc.CardHeader("3D t-SNE Topic Clustering", className="bg-primary text-white", style={"fontSize": "20px"}),
+        dbc.CardBody(dcc.Loading(id="loading-3d-tsne", type="circle", children=[dcc.Graph(id='tsne-plot', style={"height": "600px"})]))
+    ],
+    className="mb-3",
+)
+
+bubble_chart_card = dbc.Card(
+    [
+        dbc.CardHeader("Document Length Bubble Chart", className="bg-primary text-white", style={"fontSize": "20px"}),
+        dbc.CardBody(dcc.Loading(id="loading-bubble-chart", type="circle", children=[dcc.Graph(id='bubble-chart', style={"height": "600px"})]))
+    ],
+    className="mb-3",
+)
+
+bigrams_trigrams_card = dbc.Card(
+    [
+        dbc.CardHeader("Bigrams & Trigrams (Radar Chart)", className="bg-primary text-white", style={"fontSize": "20px"}),
+        dbc.CardBody(dcc.Loading(id="loading-bigrams-trigrams", type="circle", children=[dcc.Graph(id='bigrams-trigrams', style={"height": "600px"})]))
+    ],
+    className="mb-3",
+)
+
+wordcloud_card = dbc.Card(
+    [
+        dbc.CardHeader("Word Cloud", className="bg-primary text-white", style={"fontSize": "20px"}),
+        dbc.CardBody(dcc.Loading(id="loading-wordcloud", type="circle", children=[dcc.Graph(id='word-cloud', style={"height": "600px"})]))
+    ],
+    className="mb-3",
+)
+
+article_table_card = dbc.Card(
+    [
+        dbc.CardHeader("Article Details", className="bg-primary text-white", style={"fontSize": "20px"}),
+        dbc.CardBody([
+            dash_table.DataTable(
+                id='article-details',
+                columns=[
+                    {'name': 'Title', 'id': 'title', 'width': '50%', 'headerStyle': {'fontSize': '16px'}},
+                    {'name': 'Published', 'id': 'published', 'width': '15%', 'headerStyle': {'fontSize': '16px'}},
+                    {'name': 'Topics', 'id': 'topics', 'width': '35%', 'presentation': 'markdown', 'headerStyle': {'fontSize': '16px'}},
+                ],
+                style_table={'overflowX': 'auto', 'border': '1px solid #ddd'},
+                style_cell={'textAlign': 'left', 'whiteSpace': 'normal', 'height': 'auto', 'padding': '10px', 'fontFamily': 'Georgia, serif', 'fontSize': '16px'},
+                style_header={'fontWeight': 'bold', 'backgroundColor': '#005689', 'color': 'white', 'padding': '12px 10px'},
+                style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': '#f6f6f6'}],
+                page_size=10,
+                markdown_options={'html': True}
+            )
+        ])
+    ],
+    className="mb-3",
+)
+
+app.layout = dbc.Container(
+    [
+        navbar,
+        dbc.Row([dbc.Col(explainer_card, md=12)], className="g-3"),
+        controls_row,
+        dbc.Row([dbc.Col(topic_dist_card, md=12)], className="g-3"),
+        dbc.Row([dbc.Col(tsne_3d_card, md=12)], className="g-3"),
+        dbc.Row([dbc.Col(bubble_chart_card, md=12)], className="g-3"),
+        dbc.Row([dbc.Col(bigrams_trigrams_card, md=12)], className="g-3"),
+        dbc.Row([dbc.Col(wordcloud_card, md=12)], className="g-3"),
+        dbc.Row([dbc.Col(article_table_card, md=12)], className="g-3"),
+    ],
+    fluid=True,
+    className="p-4"
+)
+
+# Date Range Callback
+@app.callback(
+    [Output('date-range', 'start_date'), Output('date-range', 'end_date')],
+    Input('date-select-buttons', 'value')
+)
+def update_date_range(selected_range):
+    end_date = datetime.now().date()
+    if selected_range == 'last_day':
+        start_date = end_date - timedelta(days=1)
+    elif selected_range == 'last_three':
+        start_date = end_date - timedelta(days=3)
+    elif selected_range == 'last_week':
+        start_date = end_date - timedelta(days=7)
+    else:
+        start_date = end_date - timedelta(days=7)
+    return start_date, end_date
+
+# Main Visualization Callback
+@app.callback(
+    [
+        Output('topic-distribution', 'figure'),
+        Output('word-cloud', 'figure'),
+        Output('tsne-plot', 'figure'),
+        Output('bubble-chart', 'figure'),
+        Output('bigrams-trigrams', 'figure'),
+        Output('article-details', 'data')
+    ],
+    [
+        Input('date-range', 'start_date'),
+        Input('date-range', 'end_date'),
+        Input('num-topics-slider', 'value'),
+        Input('tsne-perplexity-slider', 'value'),
+    ]
+)
+def update_visuals(start_date, end_date, num_topics, perplexity):
+    """
+    1) Train LDA on the entire set within the selected date range.
+    2) Build visuals & article table from the entire set.
+    3) Create 3D t-SNE with user-chosen perplexity.
+    4) Show bubble chart, etc.
+    """
     try:
-        articles = data["articles"]
-        if selected_topic != "all":
-            # Filter by selected topic
-            articles = [a for a in articles if str(a["dominant_topic"]) == selected_topic]
-            
-        # Use markdown formatting for titles and topics
-        for a in articles:
-            # Wrap title in a clickable link that opens in a new tab
-            a["title"] = f"[{a['title']}](https://www.theguardian.com/search?q={a['title'].replace(' ', '+')}) <i class='fas fa-external-link-alt' style='font-size: 0.8em'></i>"
+        logger.info(f"update_visuals: {start_date} to {end_date}, num_topics={num_topics}, perplexity={perplexity}")
+
+        df, texts, dictionary, corpus, lda_model = process_articles(start_date, end_date, num_topics)
+        if df is None or df.empty:
+            # Return empty figs
+            fig_empty = go.Figure().update_layout(**get_guardian_plot_layout("No Data"))
+            return fig_empty, fig_empty, fig_empty, fig_empty, fig_empty, []
+
+        doc_lengths = []
+        doc_dominant_topics = []
+        for i in df.index:
+            doc_topics = lda_model.get_document_topics(corpus[i])
+            n_tokens = len(texts[i] if texts[i] else [])
+            doc_lengths.append(n_tokens)
+            if doc_topics:
+                best_t = max(doc_topics, key=lambda x: x[1])[0]
+            else:
+                best_t = -1
+            doc_dominant_topics.append(best_t)
+
+        df["doc_length"] = doc_lengths
+        df["dominant_topic"] = doc_dominant_topics
+
+        # Topic Word Dist
+        words_list = []
+        for t_id in range(num_topics):
+            if 0 <= t_id < lda_model.num_topics:
+                top_pairs = lda_model.show_topic(t_id, topn=10)
+                for (w, prob) in top_pairs:
+                    words_list.append((w, prob, t_id))
+
+        if not words_list:
+            fig_dist = go.Figure()
+            fig_dist.update_layout(**get_guardian_plot_layout("No topics found"))
+        else:
+            df_dist = pd.DataFrame(words_list, columns=["word", "prob", "topic"])
+            fig_dist = px.bar(df_dist, x="prob", y="word", color="topic", orientation="h", title="Topic Word Distributions (Top 10)")
+            fig_dist.update_layout(**get_guardian_plot_layout())
+
+        # Word Cloud
+        fig_wc = go.Figure()
+        if num_topics > 0 and lda_model.num_topics > 0:
+            fig_wc = create_word_cloud(lda_model.show_topic(0, topn=30))
+        else:
+            fig_wc.update_layout(**get_guardian_plot_layout("Word Cloud N/A"))
+
+        # 3D t-SNE
+        fig_tsne = create_tsne_visualization_3d(df, corpus, lda_model, perplexity)
+
+        # Bubble Chart
+        fig_bubble = create_bubble_chart(df)
+
+        # Bigrams & Trigrams Radar
+        fig_ngram = create_ngram_radar_chart(texts)
+
+        # Article Table
+        table_data = []
+        for i in df.index:
+            doc_topics = lda_model.get_document_topics(corpus[i])
+            these_topics = [f"**Topic {tid}**: {w:.3f}" for (tid, w) in sorted(doc_topics, key=lambda x: x[1], reverse=True)]
+            table_data.append({'title': df.at[i, 'title'], 'published': df.at[i, 'published'].strftime('%Y-%m-%d %H:%M'), 'topics': '<br>'.join(these_topics)})
+
+        return fig_dist, fig_wc, fig_tsne, fig_bubble, fig_ngram, table_data
+
     except Exception as e:
-        logger.error(f"Error preparing article table: {e}", exc_info=True)
-        articles = []
-    
-    return (
-        topic_dist_fig,
-        word_cloud_fig,
-        tsne_fig,
-        bubble_fig,
-        ngram_fig,
-        topic_network_fig,
-        articles,
-        new_filter_value
-    )
+        logger.error(f"update_visuals error: {e}", exc_info=True)
+        # Show error fig
+        fig_err = go.Figure()
+        fig_err.update_layout(**get_guardian_plot_layout(f"Error: {e}"))
+        return fig_err, fig_err, fig_err, fig_err, fig_err, []
 
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 8050))
