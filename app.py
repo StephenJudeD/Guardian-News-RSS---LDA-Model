@@ -79,7 +79,7 @@ def process_articles(start_date, end_date, num_topics=3):
         end_date_dt = datetime.strptime(end_date, '%Y-%m-%d').date()
         days_back = (datetime.now().date() - start_date_dt).days + 1
 
-        df = guardian.fetch_articles(days_back=days_back, page_size=300)
+        df = guardian.fetch_articles(days_back=days_back, page_size=100)
         if df.empty:
             logger.warning("No articles fetched!")
             return None, None, None, None, None, None
