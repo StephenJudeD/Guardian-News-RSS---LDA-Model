@@ -217,7 +217,7 @@ def create_tsne_visualization_3d(df, corpus, lda_model, perplexity=15):
             random_state=42,
             perplexity=perplex_val,
             n_jobs=1,
-            n_iter=250  # Reduce iterations for performance
+            n_iter=1000  # Reduce iterations for performance
         )
         embedded = tsne.fit_transform(doc_topics_array)
 
