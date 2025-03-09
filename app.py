@@ -186,19 +186,15 @@ def create_word_cloud(topic_words):
         fig.update_layout(template="plotly_dark")
         return fig
 
-def create_tsne_visualization_3d(df, corpus, lda_model, perplexity=30, dark_mode=False):
+def create_tsne_visualization_3d(df, corpus, lda_model, perplexity=15):
     """
     3D t-SNE scatter (Plotly).
-    Uses all documents in df/corpus to avoid filtering by topic.
-    Allows dynamic perplexity setting.
+    Optimized for dark theme & performance.
     """
     try:
         if df is None or len(df) < 2:
             fig = go.Figure()
-            if dark_mode:
-                fig.update_layout(**get_plotly_dark_layout("Not enough documents for t-SNE"))
-            else:
-                fig.update_layout(**get_plotly_light_layout("Not enough documents for t-SNE"))
+            fig.update_layout(template="plotly_dark")
             return fig
 
         doc_topics_list = []
@@ -211,20 +207,17 @@ def create_tsne_visualization_3d(df, corpus, lda_model, perplexity=30, dark_mode
         doc_topics_array = np.array(doc_topics_list, dtype=np.float32)
         if len(doc_topics_array) < 2:
             fig = go.Figure()
-            if dark_mode:
-                fig.update_layout(**get_plotly_dark_layout("Not enough docs for t-SNE"))
-            else:
-                fig.update_layout(**get_plotly_light_layout("Not enough docs for t-SNE"))
+            fig.update_layout(template="plotly_dark")
             return fig
 
-        perplex_val = min(perplexity, max(2, len(doc_topics_array) - 1))
+        # Use simpler t-SNE settings
+        perplex_val = min(perplexity, max(2, len(doc_topics_array) // 3))
         tsne = TSNE(
             n_components=3,
             random_state=42,
             perplexity=perplex_val,
-            n_jobs=-1,  # Changed to use all cores
-            n_iter=1000,  # Increased iterations for better clustering
-            method='barnes_hut'  # Added efficient algorithm for larger datasets
+            n_jobs=1,
+            n_iter=250  # Reduce iterations for performance
         )
         embedded = tsne.fit_transform(doc_topics_array)
 
@@ -237,53 +230,29 @@ def create_tsne_visualization_3d(df, corpus, lda_model, perplexity=30, dark_mode
             'title': df['title']
         })
 
-        # Using go.Scatter3d instead of px.scatter_3d for more control
-        traces = []
-        for topic in scatter_df['dominant_topic'].unique():
-            df_topic = scatter_df[scatter_df['dominant_topic'] == topic]
-            traces.append(
-                go.Scatter3d(
-                    x=df_topic['x'],
-                    y=df_topic['y'],
-                    z=df_topic['z'],
-                    mode='markers',
-                    marker=dict(
-                        size=4,  # Smaller points to reduce overlap
-                        opacity=0.8
-                    ),
-                    text=df_topic['title'],
-                    hoverinfo='text',
-                    name=f'Topic {topic}'
-                )
-            )
+        fig = px.scatter_3d(
+            scatter_df,
+            x='x', y='y', z='z',
+            color='dominant_topic',
+            hover_data=['title'],
+            title=f'3D Topic Clusters (Perplexity={perplex_val})'
+        )
         
-        fig = go.Figure(data=traces)
-        
-        layout = get_plotly_dark_layout() if dark_mode else get_plotly_light_layout()
-        layout.update(
-            title=f'3D t-SNE Topic Clustering (Perplexity={perplex_val}, {len(scatter_df)} articles)',
+        fig.update_layout(
+            template="plotly_dark",
             scene=dict(
                 xaxis=dict(showticklabels=False, title=''),
                 yaxis=dict(showticklabels=False, title=''),
                 zaxis=dict(showticklabels=False, title='')
             ),
-            scene_camera=dict(
-                eye=dict(x=1.5, y=1.5, z=1.5)  # Better default camera angle
-            ),
-            margin=dict(l=0, r=0, t=50, b=0)  # More space for visualization
         )
-        fig.update_layout(layout)
-        
         return fig
     except Exception as e:
         logger.error(f"Error creating 3D t-SNE: {e}", exc_info=True)
         fig = go.Figure()
-        if dark_mode:
-            fig.update_layout(**get_plotly_dark_layout(str(e)))
-        else:
-            fig.update_layout(**get_plotly_light_layout(str(e)))
+        fig.update_layout(template="plotly_dark")
         return fig
-        
+
 def create_bubble_chart(df, selected_topic=None):
     """
     Bubble chart: doc length vs published date, sized by doc length,
