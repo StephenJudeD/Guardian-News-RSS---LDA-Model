@@ -24,7 +24,7 @@ class GuardianFetcher:
         response = requests.get(self.base_url, params=params)
         return response.json()['response']
 
-    def fetch_articles(self, days_back=7, page_size=150, max_pages=30):
+    def fetch_articles(self, days_back=7, page_size=200, max_pages=30):
         end_date = datetime.now()
         start_date = end_date - timedelta(days=days_back)
         start_date_str = start_date.strftime('%Y-%m-%d')
