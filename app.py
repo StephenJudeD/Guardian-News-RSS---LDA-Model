@@ -483,14 +483,27 @@ about_card = dbc.Card(
             [
                 html.P(
                     [
-                        "This dashboard processes Guardian news articles with LDA topic modeling to discover hidden themes. "
-                        "Explore articles by date range, topic selection, and examine their distribution in 3D space. "
-                        "Use the controls below to adjust parameters and see how topics emerge across time.",
-                        html.A(
-                            " Source on GitHub",
-                            href="https://github.com/StephenJudeD/Guardian-News-RSS---LDA-Model",
-                            target="_blank",
-                            className="ms-1"
+                        "This dashboard processes live Guardian news articles through their RSS Feed API using **LDA (Latent Dirichlet Allocation) topic modeling** to uncover hidden themes. Key features include:",
+                        html.Ul(
+                            [
+                                html.Li("**Date Range Selection**: Analyze articles published within a specific time period."),
+                                html.Li("**Topic Filtering**: Explore articles by dominant topics discovered through LDA."),
+                                html.Li("**3D Visualization**: Examine article distributions in 3D space using t-SNE with adjustable perplexity settings."),
+                                html.Li("**Interactive Visualizations**: Word clouds, topic coherence charts, bubble charts, and more."),
+                                html.Li("**Article Table with Links**: View detailed information such as title, publication date, and topic probabilities."),
+                            ]
+                        ),
+                        html.P(
+                            [
+                                "Use the controls below to adjust parameters and see how topics emerge across time. For more details on the implementation, visit the ",
+                                html.A(
+                                    "source on GitHub",
+                                    href="https://github.com/StephenJudeD/Guardian-News-RSS---LDA-Model",
+                                    target="_blank",
+                                    className="ms-1"
+                                ),
+                                "."
+                            ]
                         ),
                     ],
                 ),
@@ -498,7 +511,7 @@ about_card = dbc.Card(
         ),
     ],
     className="mb-3",
-)
+))
 
 date_filter_card = dbc.Card(
     [
