@@ -76,8 +76,3 @@ class GuardianFetcher:
     
         df = pd.DataFrame(all_articles)
         return df
-        
-        df = pd.DataFrame(all_articles)
-        df['days_ago'] = (datetime.now() - df['published']).dt.days
-        return dfetched {len(df)} articles from sections: World news, US news, Football, Sport")
-                return df
