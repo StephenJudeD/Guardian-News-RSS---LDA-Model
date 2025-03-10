@@ -35,7 +35,7 @@ CUSTOM_STOP_WORDS = {
     'new', 'like', 'get', 'make', 'first', 'year', 'years', 'time', 'way', 'says', 'say', 'saying', 'according',
     'told', 'reuters', 'guardian', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
     'week', 'month', 'people', 'could', 'will', 'may', 'published', 'article', 'editor',
-    'nt', 'dont', 'doesnt', 'cant', 'couldnt', 'shouldnt', 'last', 'well', 'still', 'price',
+    'nt', 'dont', 'doesnt', 'cant', 'couldnt', 'shouldnt', 'last', 'well', 'still',
     'breaking', 'update', 'live', 'say'
 }
 
