@@ -53,7 +53,7 @@ class GuardianFetcher:
                     total_pages = data['pages']
     
                 for article in data['results']:
-                    if 'fields' in article and article['sectionName'] in ["World news", "US news", "Football", "Sport", "UK news", "Global development"]:
+                    if 'fields' in article and article['sectionName'] in ["World news", "US news", "Politics", "Opinion", "UK news", "Global development"]:
                         all_articles.append({
                             'title': article['webTitle'],
                             'content': article['fields'].get('bodyText', ''),
