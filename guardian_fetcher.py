@@ -41,7 +41,7 @@ class GuardianFetcher:
                     'api-key': self.api_key,
                     'show-fields': 'bodyText,headline,byline,wordcount,thumbnail',
                     'page-size': page_size,
-                    'order-by': 'relevance',
+                    'order-by': 'newest',
                     'from-date': start_date_str,
                     'to-date': end_date_str,
                     'page': page
