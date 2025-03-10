@@ -511,7 +511,7 @@ about_card = dbc.Card(
         ),
     ],
     className="mb-3",
-))
+)
 
 date_filter_card = dbc.Card(
     [
