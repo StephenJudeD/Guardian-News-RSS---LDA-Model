@@ -67,37 +67,36 @@ app.config.suppress_callback_exceptions = True
 # ─────────────────────────────────────────────────────────────────────
 @lru_cache(maxsize=64)
 def process_articles(start_date, end_date, num_topics=3):
-    """
-    Fetch Guardian articles in the given date range,
-    then tokenize, detect bigrams/trigrams, and train LDA on the entire set.
-    Returns (df, texts, dictionary, corpus, lda_model, coherence).
-    """
     try:
         logger.info(f"Fetching articles from {start_date} to {end_date} with num_topics={num_topics}")
 
         start_date_dt = datetime.strptime(start_date, '%Y-%m-%d').date()
         end_date_dt = datetime.strptime(end_date, '%Y-%m-%d').date()
-        days_back = (datetime.now().date() - start_date_dt).days + 1
 
-        # Fetch articles without additional filtering
-        df = guardian.fetch_articles(days_back=days_back, page_size=200, max_pages=10)
+        # Ensure the date range is exactly one week
+        if (end_date_dt - start_date_dt).days != 7:
+            logger.warning("Date range is not one week. Adjusting to enforce a one-week range.")
+            end_date_dt = start_date_dt + timedelta(days=7)
+
+        # Fetch articles for the full one-week range
+        df = guardian.fetch_articles(days_back=7, page_size=200, max_pages=30)
         if df.empty:
             logger.warning("No articles fetched!")
             return None, None, None, None, None, None
 
-        # Filter by date range only
+        # Filter by the adjusted date range
         df = df[
             (df['published'].dt.date >= start_date_dt) &
             (df['published'].dt.date <= end_date_dt)
         ]
-        logger.info(f"Filtered to {len(df)} articles in date range")
+        logger.info(f"Filtered to {len(df)} articles in the one-week range")
         if len(df) < 5:
             logger.warning("Not enough articles for LDA.")
             return None, None, None, None, None, None
 
         df.reset_index(drop=True, inplace=True)
 
-        # Tokenize
+        # Tokenize and process the articles for LDA
         tokenized_texts = []
         for i in df.index:
             content = df.at[i, 'content']
