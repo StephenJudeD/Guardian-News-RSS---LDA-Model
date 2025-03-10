@@ -75,17 +75,30 @@ def process_articles(start_date, end_date, num_topics=3):
     try:
         logger.info(f"Fetching articles from {start_date} to {end_date} with num_topics={num_topics}")
 
-        start_date_dt = datetime.strptime(start_date, '%Y-%m-%d').date()
-        end_date_dt = datetime.strptime(end_date, '%Y-%m-%d').date()
-        days_back = (datetime.now().date() - start_date_dt).days + 1
+        # Convert strings to datetime objects if they are strings
+        if isinstance(start_date, str):
+            start_date_dt = datetime.strptime(start_date, '%Y-%m-%d').date()
+        else:
+            start_date_dt = start_date
 
-        # Fetch articles without additional filtering
-        df = guardian.fetch_articles(days_back=days_back, page_size=200, max_pages=30)
+        if isinstance(end_date, str):
+            end_date_dt = datetime.strptime(end_date, '%Y-%m-%d').date()
+        else:
+            end_date_dt = end_date
+
+        # Fetch articles within the specified date range
+        df = guardian.fetch_articles(
+            start_date_dt,
+            end_date_dt,
+            page_size=200,
+            max_pages=30
+        )
+        
         if df.empty:
             logger.warning("No articles fetched!")
             return None, None, None, None, None, None
 
-        # Filter by date range only
+        # Filter by date range
         df = df[
             (df['published'].dt.date >= start_date_dt) &
             (df['published'].dt.date <= end_date_dt)
