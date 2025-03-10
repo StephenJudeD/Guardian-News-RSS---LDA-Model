@@ -24,7 +24,7 @@ class GuardianFetcher:
         response = requests.get(self.base_url, params=params)
         return response.json()['response']
 
-    def fetch_articles(self, days_back=7, page_size=50):
+    def fetch_articles(self, days_back=7, page_size=120, max_pages=10):
         end_date = datetime.now()
         start_date = end_date - timedelta(days=days_back)
         start_date_str = start_date.strftime('%Y-%m-%d')
@@ -34,15 +34,15 @@ class GuardianFetcher:
         page = 1
         total_pages = 1
 
-        while page <= total_pages and page <= 2:
+        while page <= total_pages and page <= max_pages:
             try:
                 data = self._fetch_page(page, start_date_str, end_date_str, page_size)
                 
                 if page == 1:
-                    total_pages = min(data['pages'], 2)
+                    total_pages = data['pages']
                 
                 for article in data['results']:
-                    if 'fields' in article:
+                    if 'fields' in article and article['sectionName'] in ["World news", "US news", "Football","Sport"]:
                         all_articles.append({
                             'title': article['webTitle'],
                             'content': article['fields'].get('bodyText', ''),
@@ -57,6 +57,7 @@ class GuardianFetcher:
                         })
                 
                 page += 1
+                time.sleep(1)  # Add a delay to avoid hitting rate limits
                 
             except Exception as e:
                 print(f"Error fetching page {page}: {str(e)}")
@@ -65,5 +66,5 @@ class GuardianFetcher:
         df = pd.DataFrame(all_articles)
         df['days_ago'] = (datetime.now() - df['published']).dt.days
         
-        print(f"📰 Fetched {len(df)} articles")
+        print(f"📰 Fetched {len(df)} articles from sections: World news, US news, Football, Sport")
         return df
