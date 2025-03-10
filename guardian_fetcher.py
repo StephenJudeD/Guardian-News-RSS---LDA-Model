@@ -24,7 +24,7 @@ class GuardianFetcher:
         response = requests.get(self.base_url, params=params)
         return response.json()['response']
 
-    def fetch_articles(self, start_date, end_date, page_size=100, max_pages=10):
+    def fetch_articles(self, start_date, end_date, page_size=200, max_pages=10):
         """
         Fetch Guardian articles within the specified date range.
         """
