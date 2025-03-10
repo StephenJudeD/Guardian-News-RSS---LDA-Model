@@ -37,34 +37,26 @@ class GuardianFetcher:
         while page <= total_pages and page <= max_pages:
             try:
                 data = self._fetch_page(page, start_date_str, end_date_str, page_size)
-                
                 if page == 1:
                     total_pages = data['pages']
-                
                 for article in data['results']:
-                    if 'fields' in article and article['sectionName'] in ["World news", "US news", "Football","Sport","UK news"]:
+                    if 'fields' in article and article['sectionName'] in ["World news", "US news", "Football", "Sport", "UK news"]:
                         all_articles.append({
                             'title': article['webTitle'],
                             'content': article['fields'].get('bodyText', ''),
                             'section': article['sectionName'],
-                            'published': datetime.strptime(
-                                article['webPublicationDate'], 
-                                '%Y-%m-%dT%H:%M:%SZ'
-                            ),
+                            'published': datetime.strptime(article['webPublicationDate'], '%Y-%m-%dT%H:%M:%SZ'),
                             'wordcount': article['fields'].get('wordcount', 0),
                             'byline': article['fields'].get('byline', ''),
                             'thumbnail': article['fields'].get('thumbnail', '')
                         })
-                
                 page += 1
-                time.sleep(1)  # Add a delay to avoid hitting rate limits
-                
+                time.sleep(1)  # To avoid rate limits
             except Exception as e:
-                print(f"Error fetching page {page}: {str(e)}")
+                logger.error(f"Error fetching page {page}: {str(e)}")
                 break
-
+        
         df = pd.DataFrame(all_articles)
         df['days_ago'] = (datetime.now() - df['published']).dt.days
-        
-        print(f"📰 Fetched {len(df)} articles from sections: World news, US news, Football, Sport")
-        return df
+        return dfetched {len(df)} articles from sections: World news, US news, Football, Sport")
+                return df
