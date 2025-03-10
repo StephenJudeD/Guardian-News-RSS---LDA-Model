@@ -9,7 +9,7 @@ class GuardianFetcher:
         self.api_key = api_key
         self.base_url = "https://content.guardianapis.com/search"
     
-    @lru_cache(maxsize=32)
+    #@lru_cache(maxsize=32)
     def _fetch_page(self, page, start_date_str, end_date_str, page_size):
         """Cached method for fetching individual pages"""
         params = {
@@ -24,7 +24,7 @@ class GuardianFetcher:
         response = requests.get(self.base_url, params=params)
         return response.json()['response']
 
-    def fetch_articles(self, days_back=7, page_size=200, max_pages=30):
+    def fetch_articles(self, days_back=7, page_size=100, max_pages=10):
         end_date = datetime.now()
         start_date = end_date - timedelta(days=days_back)
         start_date_str = start_date.strftime('%Y-%m-%d')
