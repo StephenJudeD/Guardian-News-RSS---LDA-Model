@@ -79,11 +79,13 @@ def process_articles(start_date, end_date, num_topics=3):
         end_date_dt = datetime.strptime(end_date, '%Y-%m-%d').date()
         days_back = (datetime.now().date() - start_date_dt).days + 1
 
-        df = guardian.fetch_articles(days_back=days_back, page_size=120)
+        # Fetch articles without additional filtering
+        df = guardian.fetch_articles(days_back=days_back, page_size=200, max_pages=10)
         if df.empty:
             logger.warning("No articles fetched!")
             return None, None, None, None, None, None
 
+        # Filter by date range only
         df = df[
             (df['published'].dt.date >= start_date_dt) &
             (df['published'].dt.date <= end_date_dt)
@@ -126,7 +128,7 @@ def process_articles(start_date, end_date, num_topics=3):
         dictionary.filter_extremes(no_below=2, no_above=0.9)
         corpus = [dictionary.doc2bow(t) for t in texts]
 
-        # Train LDA with more conservative settings
+        # Train LDA
         lda_model = models.LdaModel(
             corpus=corpus,
             num_topics=num_topics,
@@ -136,7 +138,7 @@ def process_articles(start_date, end_date, num_topics=3):
             alpha='auto'
         )
         
-        # Calculate simple topic coherence (average of top term probabilities)
+        # Calculate topic coherence
         coherence = {}
         for topic_id in range(num_topics):
             top_terms = lda_model.show_topic(topic_id, topn=10)
