@@ -65,7 +65,7 @@ app.config.suppress_callback_exceptions = True
 # ─────────────────────────────────────────────────────────────────────
 # Data Processing
 # ─────────────────────────────────────────────────────────────────────
-@lru_cache(maxsize=64)
+#@lru_cache(maxsize=64)
 def process_articles(start_date, end_date, num_topics=3):
     """
     Fetch Guardian articles in the given date range,
