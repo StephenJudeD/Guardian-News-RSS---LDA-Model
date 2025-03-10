@@ -624,7 +624,7 @@ coherence_card = dbc.Card(
             dcc.Loading(
                 id="loading-coherence",
                 type="default",
-                children=[dcc.Graph(id='coherence-chart', style={"height": "300px"})]
+                children=[dcc.Graph(id='coherence-chart', style={"height": "400px"})]
             )
         )
     ],
