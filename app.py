@@ -598,7 +598,7 @@ tsne_card = dbc.Card(
 )
 
 update_button = dbc.Button(
-    "Update Analysis", 
+    "Run Analysis", 
     id="update-button", 
     color="primary", 
     size="lg", 
