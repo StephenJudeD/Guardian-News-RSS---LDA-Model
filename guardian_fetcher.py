@@ -16,7 +16,7 @@ class GuardianFetcher:
             'api-key': self.api_key,
             'show-fields': 'bodyText,headline,byline,wordcount,thumbnail',
             'page-size': page_size,
-            'order-by': 'relevance',
+            'order-by': 'newest',
             'from-date': start_date_str,
             'to-date': end_date_str,
             'page': page
@@ -53,7 +53,7 @@ class GuardianFetcher:
                     total_pages = data['pages']
     
                 for article in data['results']:
-                    if 'fields' in article and article['sectionName'] in ["World news", "US news", "Football", "Sport", "UK news"]:
+                    if 'fields' in article and article['sectionName'] in ["World news", "US news", "Football", "Sport", "UK news", "Global development"]:
                         all_articles.append({
                             'title': article['webTitle'],
                             'content': article['fields'].get('bodyText', ''),
