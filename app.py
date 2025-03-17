@@ -55,7 +55,7 @@ guardian = GuardianFetcher(GUARDIAN_API_KEY)
 
 # Dash Setup - Using built-in dark theme
 app = Dash(
-    __name__, 
+    __name__,
     external_stylesheets=[dbc.themes.DARKLY],
     meta_tags=[{"name": "viewport", "content": "width=device-width, initial-scale=1"}]
 )
@@ -131,8 +131,11 @@ def process_articles(start_date, end_date, num_topics=3):
         trigram = Phraser(trigram_phrases)
 
         texts = []
+        bigram_texts = []
+        
         for t in tokenized_texts:
             bigrammed = bigram[t]
+            bigram_texts.append(bigrammed)
             trigrammed = trigram[bigrammed]
             texts.append(trigrammed)
 
@@ -158,11 +161,11 @@ def process_articles(start_date, end_date, num_topics=3):
             coherence[topic_id] = sum(prob for _, prob in top_terms) / len(top_terms)
 
         logger.info(f"Processed {len(df)} articles successfully with LDA num_topics={num_topics}")
-        return df, texts, dictionary, corpus, lda_model, coherence
+        return df, texts, dictionary, corpus, lda_model, coherence, bigram_texts
 
     except Exception as e:
         logger.error(f"Error in process_articles: {e}", exc_info=True)
-        return None, None, None, None, None, None
+        return None, None, None, None, None, None, None
 
 # ─────────────────────────────────────────────────────────────────────
 # Visualization Helpers
@@ -173,7 +176,7 @@ def create_word_cloud(topic_words):
     """
     try:
         freq_dict = dict(topic_words)
-        
+
         wc = WordCloud(
             background_color="#222",
             width=800,
@@ -279,7 +282,7 @@ def create_bubble_chart(df, selected_topic=None):
             fig = go.Figure()
             fig.update_layout(template="plotly_dark")
             return fig
-            
+
         # Filter by selected topic if specified
         if selected_topic is not None and selected_topic != 'all':
             filtered_df = df[df['dominant_topic'] == int(selected_topic)].copy()
@@ -319,6 +322,64 @@ def create_bubble_chart(df, selected_topic=None):
         return fig
     except Exception as e:
         logger.error(f"Error creating bubble chart: {e}", exc_info=True)
+        fig = go.Figure()
+        fig.update_layout(template="plotly_dark")
+        return fig
+
+def create_bigram_radar_chart(texts):
+    """
+    Radar (sonar) chart of the most common bigrams (top 8).
+    Optimized for dark theme.
+    """
+    try:
+        bigram_counts = {}
+        for tokens in texts:
+            for tok in tokens:
+                if "_" in tok and tok.count("_") == 1:  # Only count bigrams (one underscore)
+                    bigram_counts[tok] = bigram_counts.get(tok, 0) + 1
+
+        if not bigram_counts:
+            fig = go.Figure()
+            fig.update_layout(template="plotly_dark", title="No bigrams found")
+            return fig
+
+        sorted_bigrams = sorted(bigram_counts.items(), key=lambda x: x[1], reverse=True)
+        top_bigrams = sorted_bigrams[:8]  # Take fewer for better visibility
+        
+        # Format the bigrams for better display
+        formatted_bigrams = []
+        for bigram, count in top_bigrams:
+            formatted = bigram.replace('_', ' ')
+            formatted_bigrams.append((formatted, count))
+            
+        df_bigram = pd.DataFrame(formatted_bigrams, columns=["bigram", "count"])
+
+        fig = px.line_polar(
+            df_bigram,
+            r="count",
+            theta="bigram",
+            line_close=True,
+            title="Top Bigrams (Radar)"
+        )
+        
+        # Enhance the polar chart for dark theme
+        fig.update_traces(
+            fill='toself',
+            fillcolor="rgba(65, 105, 225, 0.3)",
+            line=dict(color="royalblue", width=2)
+        )
+        
+        fig.update_layout(
+            template="plotly_dark",
+            polar=dict(
+                radialaxis=dict(visible=True, color="#888"),
+                angularaxis=dict(color="#888", tickfont=dict(size=11))
+            ),
+            showlegend=False
+        )
+        return fig
+    except Exception as e:
+        logger.error(f"Error creating bigram radar chart: {e}", exc_info=True)
         fig = go.Figure()
         fig.update_layout(template="plotly_dark")
         return fig
@@ -388,7 +449,7 @@ def create_topic_distribution(topic_distributions, selected_topic=None):
     """
     try:
         words_list = []
-        
+
         # Filter by selected topic if specified
         if selected_topic is not None and selected_topic != 'all':
             if int(selected_topic) in topic_distributions:
@@ -439,7 +500,7 @@ def create_coherence_chart(coherence):
             fig = go.Figure()
             fig.update_layout(template="plotly_dark", title="No coherence data available")
             return fig
-            
+
         topics = list(coherence.keys())
         values = list(coherence.values())
         
@@ -467,10 +528,19 @@ def create_coherence_chart(coherence):
         fig = go.Figure()
         fig.update_layout(template="plotly_dark")
         return fig
-
 # ─────────────────────────────────────────────────────────────────────
 # Layout
 # ─────────────────────────────────────────────────────────────────────
+# Custom CSS for title styling
+app_title_style = {
+    "fontSize": "32px",
+    "fontWeight": "bold",
+    "textAlign": "center",
+    "margin": "0 auto",
+    "color": "white",
+    "textDecoration": "none"
+}
+
 navbar = dbc.Navbar(
     dbc.Container(
         [
@@ -478,12 +548,12 @@ navbar = dbc.Navbar(
                 dbc.Row(
                     [
                         dbc.Col(html.Img(src="https://static.guim.co.uk/sys-images/Guardian/Pix/pictures/2010/03/01/poweredbyguardianBLACK.png", height="30px")),
-                        dbc.Col(dbc.NavbarBrand("Guardian News Topic Explorer", className="ms-2")),
                     ],
                     align="center"
                 ),
                 href="#",
             ),
+            html.H1("Guardian News Topic Explorer", style=app_title_style),
         ],
         fluid=True
     ),
@@ -497,36 +567,38 @@ about_card = dbc.Card(
         dbc.CardBody(
             [
                 html.P(
-                    [
-                        "This dashboard processes live Guardian news articles through their RSS Feed API using **LDA (Latent Dirichlet Allocation) topic modeling** to uncover hidden themes. Key features include:",
-                        html.Ul(
-                            [
-                                html.Li("**Date Range Selection**: Analyze articles published within a specific time period."),
-                                html.Li("**Topic Filtering**: Explore articles by dominant topics discovered through LDA."),
-                                html.Li("**3D Visualization**: Examine article distributions in 3D space using t-SNE with adjustable perplexity settings."),
-                                html.Li("**Interactive Visualizations**: Word clouds, topic coherence charts, bubble charts, and more."),
-                                html.Li("**Article Table with Links**: View detailed information such as title, publication date, and topic probabilities."),
-                            ]
-                        ),
-                        html.P(
-                            [
-                                "Use the controls below to adjust parameters and see how topics emerge across time. For more details on the implementation, visit the ",
-                                html.A(
-                                    "source on GitHub",
-                                    href="https://github.com/StephenJudeD/Guardian-News-RSS---LDA-Model",
-                                    target="_blank",
-                                    className="ms-1"
-                                ),
-                                "."
-                            ]
-                        ),
-                    ],
+                    "This dashboard analyzes Guardian news articles using LDA topic modeling to discover hidden themes in real-time. Explore trending topics, visualize article clusters, and dive into content patterns - all without reading every single article.",
+                    className="lead"
                 ),
-            ]
+                html.Div([
+                    html.P("Key features:"),
+                    html.Ul([
+                        html.Li("Date selection for targeted analysis"),
+                        html.Li("Topic filtering to focus on specific themes"),
+                        html.Li("3D visualization showing article relationships"),
+                        html.Li("Interactive charts revealing content patterns"),
+                        html.Li("Easy browsing with the article table")
+                    ])
+                ]),
+                html.P(
+                    [
+                        "For source code and implementation details, visit ",
+                        html.A(
+                            "GitHub",
+                            href="https://github.com/StephenJudeD/Guardian-News-RSS---LDA-Model",
+                            target="_blank",
+                            className="ms-1"
+                        )
+                    ]
+                ),
+            ],
         ),
     ],
     className="mb-3",
 )
+
+# More compact date style
+date_picker_style = {"width": "120px", "fontSize": "14px"}
 
 date_filter_card = dbc.Card(
     [
@@ -535,26 +607,28 @@ date_filter_card = dbc.Card(
             dbc.ButtonGroup(
                 [
                     dbc.Button("Last Day", id="date-1d", color="secondary", outline=True, className="me-1"),
-                    dbc.Button("Last 3 Days", id="date-3d", color="secondary", outline=True, className="me-1"),
-                    dbc.Button("Last Week", id="date-7d", color="secondary", outline=False, className="me-1"),
+                    dbc.Button("Last 2 Days", id="date-2d", color="secondary", outline=True, className="me-1"),
+                    dbc.Button("Last 3 Days", id="date-3d", color="secondary", outline=False, className="me-1"),
                 ],
                 className="mb-3 w-100"
             ),
             dbc.Row([
                 dbc.Col([
-                    dbc.Label("Start Date"),
+                    dbc.Label("Start Date", style={"fontSize": "14px"}),
                     dcc.DatePickerSingle(
                         id='start-date',
-                        date=(datetime.now() - timedelta(days=7)).date(),
+                        date=(datetime.now() - timedelta(days=3)).date(),
                         display_format='YYYY-MM-DD',
+                        style=date_picker_style
                     ),
                 ], width=6),
                 dbc.Col([
-                    dbc.Label("End Date"),
+                    dbc.Label("End Date", style={"fontSize": "14px"}),
                     dcc.DatePickerSingle(
                         id='end-date',
                         date=datetime.now().date(),
                         display_format='YYYY-MM-DD',
+                        style=date_picker_style
                     ),
                 ], width=6),
             ]),
@@ -571,14 +645,14 @@ topics_card = dbc.Card(
             dcc.Slider(
                 id="num-topics-slider",
                 min=2,
-                max=7,  # Reduced max as requested
-                value=3,  # Default to 3 as requested
+                max=7, # Reduced max as requested
+                value=3, # Default to 3 as requested
                 step=1,
                 marks={i: str(i) for i in range(2, 8)},
                 tooltip={"placement": "bottom", "always_visible": True},
                 className="mb-4"
             ),
-            
+
             dbc.Label("Topic Selection"),
             dcc.Dropdown(
                 id="topic-selector",
@@ -599,9 +673,9 @@ tsne_card = dbc.Card(
             dcc.Slider(
                 id="tsne-perplexity-slider",
                 min=5,
-                max=30,  # Reduced maximum value
+                max=30, # Reduced maximum value
                 step=5,
-                value=15,  # Reduced default value
+                value=15, # Reduced default value
                 marks={i: str(i) for i in range(5, 31, 5)},
                 tooltip={"placement": "bottom", "always_visible": True},
             ),
@@ -611,10 +685,10 @@ tsne_card = dbc.Card(
 )
 
 update_button = dbc.Button(
-    "Run Analysis", 
-    id="update-button", 
-    color="primary", 
-    size="lg", 
+    "Run Analysis",
+    id="update-button",
+    color="primary",
+    size="lg",
     className="w-100 mb-3"
 )
 
@@ -701,14 +775,14 @@ bubble_chart_card = dbc.Card(
     className="mb-3",
 )
 
-ngram_chart_card = dbc.Card(
+bigram_chart_card = dbc.Card(
     [
-        dbc.CardHeader("Common Phrases (Radar)"),
+        dbc.CardHeader("Top Bigrams"),
         dbc.CardBody(
             dcc.Loading(
-                id="loading-ngram-chart",
+                id="loading-bigram-chart",
                 type="default",
-                children=[dcc.Graph(id='ngram-chart', style={"height": "400px"})]
+                children=[dcc.Graph(id='bigram-chart', style={"height": "400px"})]
             )
         )
     ],
@@ -727,7 +801,7 @@ article_table_card = dbc.Card(
                     dash_table.DataTable(
                         id='article-table',
                         columns=[
-                            {'name': 'Title', 'id': 'title', 'presentation': 'markdown'},
+                            {'name': 'Title', 'id': 'title'},
                             {'name': 'Published', 'id': 'published'},
                             {'name': 'Topics', 'id': 'topics', 'presentation': 'markdown'},
                         ],
@@ -764,12 +838,15 @@ article_table_card = dbc.Card(
     className="mb-3",
 )
 
+# Auto-run indicator - will be triggered on load
+auto_run_div = html.Div(id='auto-run-div', style={'display': 'none'})
+
 app.layout = dbc.Container(
     [
         navbar,
         dbc.Row([dbc.Col(about_card)], className="mt-3"),
         controls_row,
-        
+
         # Main visualizations
         dbc.Row([
             dbc.Col(topic_dist_card, md=7),
@@ -778,12 +855,14 @@ app.layout = dbc.Container(
         
         dbc.Row([
             dbc.Col(wordcloud_card, md=6),
-            dbc.Col(ngram_chart_card, md=6),
+            dbc.Col(bigram_chart_card, md=6),
+        ]),
+        
+        dbc.Row([
+            dbc.Col(bubble_chart_card, md=12),
         ]),
         
         dbc.Row([dbc.Col(tsne_3d_card)]),
-        
-        dbc.Row([dbc.Col(bubble_chart_card)]),
         
         dbc.Row([dbc.Col(article_table_card)]),
         
@@ -793,41 +872,53 @@ app.layout = dbc.Container(
                 className="text-center text-muted mt-4 mb-4"
             )
         ),
+        
+        # Hidden div for auto-run
+        auto_run_div
     ],
     fluid=True,
     className="pb-5"
 )
+
 # ─────────────────────────────────────────────────────────────────────
 # Callbacks
 # ─────────────────────────────────────────────────────────────────────
+# Auto-run on page load
+@app.callback(
+    Output("update-button", "n_clicks"),
+    Input("auto-run-div", "children")
+)
+def auto_run(_):
+    # This triggers the main callback on page load
+    return 1
 
 # Date range button callbacks
 @app.callback(
     [Output("start-date", "date"), Output("end-date", "date"),
-     Output("date-1d", "color"), Output("date-3d", "color"), Output("date-7d", "color")],
-    [Input("date-1d", "n_clicks"), Input("date-3d", "n_clicks"), Input("date-7d", "n_clicks")],
-    [State("date-1d", "n_clicks"), State("date-3d", "n_clicks"), State("date-7d", "n_clicks")]
+    Output("date-1d", "color"), Output("date-2d", "color"), Output("date-3d", "color")],
+    [Input("date-1d", "n_clicks"), Input("date-2d", "n_clicks"), Input("date-3d", "n_clicks")],
+    [State("date-1d", "n_clicks"), State("date-2d", "n_clicks"), State("date-3d", "n_clicks")]
 )
-def update_date_range(n1, n3, n7, s1, s3, s7):
+def update_date_range(n1, n2, n3, s1, s2, s3):
     ctx = dash.callback_context
     if not ctx.triggered:
         # Default state
         end_date = datetime.now().date()
-        start_date = end_date - timedelta(days=7)
+        start_date = end_date - timedelta(days=3)
         return start_date, end_date, "secondary", "secondary", "primary"
-    
+
     button_id = ctx.triggered[0]["prop_id"].split(".")[0]
-    
+
     end_date = datetime.now().date()
-    
+
     if button_id == "date-1d":
         start_date = end_date - timedelta(days=1)
         return start_date, end_date, "primary", "secondary", "secondary"
-    elif button_id == "date-3d":
-        start_date = end_date - timedelta(days=3)
+    elif button_id == "date-2d":
+        start_date = end_date - timedelta(days=2)
         return start_date, end_date, "secondary", "primary", "secondary"
-    else:  # date-7d
-        start_date = end_date - timedelta(days=7)
+    else:  # date-3d
+        start_date = end_date - timedelta(days=3)
         return start_date, end_date, "secondary", "secondary", "primary"
 
 # Update topic selector options
@@ -849,7 +940,7 @@ def update_topic_options(num_topics):
         Output("word-cloud", "figure"),
         Output("tsne-plot", "figure"),
         Output("bubble-chart", "figure"),
-        Output("ngram-chart", "figure"),
+        Output("bigram-chart", "figure"),
         Output("article-table", "data"),
         Output("article-count", "children")
     ],
@@ -868,16 +959,16 @@ def update_visuals(n_clicks, selected_topic, start_date, end_date, num_topics, p
     """
     Update all visualizations based on input parameters and selected topic.
     """
-    if n_clicks is None:  # Initial load
+    if n_clicks is None: # Initial load
         empty_fig = go.Figure()
         empty_fig.update_layout(template="plotly_dark")
-        return empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, [], "No data yet. Click 'Update Analysis' to begin."
-    
+        return empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, [], "No data yet. Click 'Run Analysis' to begin."
+
     try:
         logger.info(f"update_visuals: {start_date} to {end_date}, num_topics={num_topics}, perplexity={perplexity}")
 
         # Process articles
-        df, texts, dictionary, corpus, lda_model, coherence = process_articles(start_date, end_date, num_topics)
+        df, texts, dictionary, corpus, lda_model, coherence, bigram_texts = process_articles(start_date, end_date, num_topics)
         
         if df is None or df.empty:
             empty_fig = go.Figure()
@@ -928,8 +1019,8 @@ def update_visuals(n_clicks, selected_topic, start_date, end_date, num_topics, p
         # Bubble Chart
         fig_bubble = create_bubble_chart(df, selected_topic)
 
-        # Ngram Radar
-        fig_ngram = create_ngram_radar_chart(texts)
+        # Bigram Chart
+        fig_bigram = create_bigram_radar_chart(bigram_texts)
 
         # Article table data
         table_data = []
@@ -948,11 +1039,11 @@ def update_visuals(n_clicks, selected_topic, start_date, end_date, num_topics, p
                 in sorted(doc_topics, key=lambda x: x[1], reverse=True)
             ]
             
-            # Make title clickable and open in new tab
-            title_with_link = f"[{filtered_df.at[i, 'title']}](https://www.theguardian.com/search?q={filtered_df.at[i, 'title'].replace(' ', '+')}) <i class='fas fa-external-link-alt' style='font-size: 0.8em'></i>"
+            # Plain text title (no links)
+            title = filtered_df.at[i, 'title']
             
             table_data.append({
-                'title': title_with_link,
+                'title': title,
                 'published': filtered_df.at[i, 'published'].strftime('%Y-%m-%d %H:%M'),
                 'topics': "<br>".join(these_topics)
             })
@@ -964,7 +1055,7 @@ def update_visuals(n_clicks, selected_topic, start_date, end_date, num_topics, p
             html.Span(f" for Topic {selected_topic}" if selected_topic != 'all' else " across all topics")
         ])
 
-        return fig_dist, fig_coherence, fig_wc, fig_tsne, fig_bubble, fig_ngram, table_data, count_message
+        return fig_dist, fig_coherence, fig_wc, fig_tsne, fig_bubble, fig_bigram, table_data, count_message
 
     except Exception as e:
         logger.error(f"update_visuals error: {e}", exc_info=True)
