@@ -132,13 +132,11 @@ def process_articles(start_date, end_date, num_topics=3):
 
         texts = []
         bigram_texts = []
-        trigram_texts = []
         
         for t in tokenized_texts:
             bigrammed = bigram[t]
             bigram_texts.append(bigrammed)
             trigrammed = trigram[bigrammed]
-            trigram_texts.append(trigrammed)
             texts.append(trigrammed)
 
         # Dictionary & Corpus
@@ -163,11 +161,11 @@ def process_articles(start_date, end_date, num_topics=3):
             coherence[topic_id] = sum(prob for _, prob in top_terms) / len(top_terms)
 
         logger.info(f"Processed {len(df)} articles successfully with LDA num_topics={num_topics}")
-        return df, texts, dictionary, corpus, lda_model, coherence, bigram_texts, trigram_texts
+        return df, texts, dictionary, corpus, lda_model, coherence, bigram_texts
 
     except Exception as e:
         logger.error(f"Error in process_articles: {e}", exc_info=True)
-        return None, None, None, None, None, None, None, None
+        return None, None, None, None, None, None, None
 
 # ─────────────────────────────────────────────────────────────────────
 # Visualization Helpers
@@ -386,64 +384,6 @@ def create_bigram_radar_chart(texts):
         fig.update_layout(template="plotly_dark")
         return fig
 
-def create_trigram_radar_chart(texts):
-    """
-    Radar (sonar) chart of the most common trigrams (top 8).
-    Optimized for dark theme.
-    """
-    try:
-        trigram_counts = {}
-        for tokens in texts:
-            for tok in tokens:
-                if "_" in tok and tok.count("_") == 2:  # Only count trigrams (two underscores)
-                    trigram_counts[tok] = trigram_counts.get(tok, 0) + 1
-
-        if not trigram_counts:
-            fig = go.Figure()
-            fig.update_layout(template="plotly_dark", title="No trigrams found")
-            return fig
-
-        sorted_trigrams = sorted(trigram_counts.items(), key=lambda x: x[1], reverse=True)
-        top_trigrams = sorted_trigrams[:8]  # Take fewer for better visibility
-        
-        # Format the trigrams for better display
-        formatted_trigrams = []
-        for trigram, count in top_trigrams:
-            formatted = trigram.replace('_', ' ')
-            formatted_trigrams.append((formatted, count))
-            
-        df_trigram = pd.DataFrame(formatted_trigrams, columns=["trigram", "count"])
-
-        fig = px.line_polar(
-            df_trigram,
-            r="count",
-            theta="trigram",
-            line_close=True,
-            title="Top Trigrams (Radar)"
-        )
-        
-        # Enhance the polar chart for dark theme
-        fig.update_traces(
-            fill='toself',
-            fillcolor="rgba(0, 200, 125, 0.3)",
-            line=dict(color="mediumseagreen", width=2)
-        )
-        
-        fig.update_layout(
-            template="plotly_dark",
-            polar=dict(
-                radialaxis=dict(visible=True, color="#888"),
-                angularaxis=dict(color="#888", tickfont=dict(size=11))
-            ),
-            showlegend=False
-        )
-        return fig
-    except Exception as e:
-        logger.error(f"Error creating trigram radar chart: {e}", exc_info=True)
-        fig = go.Figure()
-        fig.update_layout(template="plotly_dark")
-        return fig
-
 def create_ngram_radar_chart(texts):
     """
     Radar (sonar) chart of the most common bigrams/trigrams (top 8).
@@ -657,6 +597,9 @@ about_card = dbc.Card(
     className="mb-3",
 )
 
+# More compact date style
+date_picker_style = {"width": "120px", "fontSize": "14px"}
+
 date_filter_card = dbc.Card(
     [
         dbc.CardHeader("Date Range"),
@@ -671,19 +614,21 @@ date_filter_card = dbc.Card(
             ),
             dbc.Row([
                 dbc.Col([
-                    dbc.Label("Start Date"),
+                    dbc.Label("Start Date", style={"fontSize": "14px"}),
                     dcc.DatePickerSingle(
                         id='start-date',
                         date=(datetime.now() - timedelta(days=3)).date(),
                         display_format='YYYY-MM-DD',
+                        style=date_picker_style
                     ),
                 ], width=6),
                 dbc.Col([
-                    dbc.Label("End Date"),
+                    dbc.Label("End Date", style={"fontSize": "14px"}),
                     dcc.DatePickerSingle(
                         id='end-date',
                         date=datetime.now().date(),
                         display_format='YYYY-MM-DD',
+                        style=date_picker_style
                     ),
                 ], width=6),
             ]),
@@ -844,20 +789,6 @@ bigram_chart_card = dbc.Card(
     className="mb-3",
 )
 
-trigram_chart_card = dbc.Card(
-    [
-        dbc.CardHeader("Top Trigrams"),
-        dbc.CardBody(
-            dcc.Loading(
-                id="loading-trigram-chart",
-                type="default",
-                children=[dcc.Graph(id='trigram-chart', style={"height": "400px"})]
-            )
-        )
-    ],
-    className="mb-3",
-)
-
 article_table_card = dbc.Card(
     [
         dbc.CardHeader("Article Details"),
@@ -870,7 +801,7 @@ article_table_card = dbc.Card(
                     dash_table.DataTable(
                         id='article-table',
                         columns=[
-                            {'name': 'Title', 'id': 'title', 'presentation': 'markdown'},
+                            {'name': 'Title', 'id': 'title'},
                             {'name': 'Published', 'id': 'published'},
                             {'name': 'Topics', 'id': 'topics', 'presentation': 'markdown'},
                         ],
@@ -907,6 +838,9 @@ article_table_card = dbc.Card(
     className="mb-3",
 )
 
+# Auto-run indicator - will be triggered on load
+auto_run_div = html.Div(id='auto-run-div', style={'display': 'none'})
+
 app.layout = dbc.Container(
     [
         navbar,
@@ -925,8 +859,7 @@ app.layout = dbc.Container(
         ]),
         
         dbc.Row([
-            dbc.Col(trigram_chart_card, md=6),
-            dbc.Col(bubble_chart_card, md=6),
+            dbc.Col(bubble_chart_card, md=12),
         ]),
         
         dbc.Row([dbc.Col(tsne_3d_card)]),
@@ -939,6 +872,9 @@ app.layout = dbc.Container(
                 className="text-center text-muted mt-4 mb-4"
             )
         ),
+        
+        # Hidden div for auto-run
+        auto_run_div
     ],
     fluid=True,
     className="pb-5"
@@ -947,6 +883,15 @@ app.layout = dbc.Container(
 # ─────────────────────────────────────────────────────────────────────
 # Callbacks
 # ─────────────────────────────────────────────────────────────────────
+# Auto-run on page load
+@app.callback(
+    Output("update-button", "n_clicks"),
+    Input("auto-run-div", "children")
+)
+def auto_run(_):
+    # This triggers the main callback on page load
+    return 1
+
 # Date range button callbacks
 @app.callback(
     [Output("start-date", "date"), Output("end-date", "date"),
@@ -996,7 +941,6 @@ def update_topic_options(num_topics):
         Output("tsne-plot", "figure"),
         Output("bubble-chart", "figure"),
         Output("bigram-chart", "figure"),
-        Output("trigram-chart", "figure"),
         Output("article-table", "data"),
         Output("article-count", "children")
     ],
@@ -1018,13 +962,13 @@ def update_visuals(n_clicks, selected_topic, start_date, end_date, num_topics, p
     if n_clicks is None: # Initial load
         empty_fig = go.Figure()
         empty_fig.update_layout(template="plotly_dark")
-        return empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, [], "No data yet. Click 'Run Analysis' to begin."
+        return empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, [], "No data yet. Click 'Run Analysis' to begin."
 
     try:
         logger.info(f"update_visuals: {start_date} to {end_date}, num_topics={num_topics}, perplexity={perplexity}")
 
         # Process articles
-        df, texts, dictionary, corpus, lda_model, coherence, bigram_texts, trigram_texts = process_articles(start_date, end_date, num_topics)
+        df, texts, dictionary, corpus, lda_model, coherence, bigram_texts = process_articles(start_date, end_date, num_topics)
         
         if df is None or df.empty:
             empty_fig = go.Figure()
@@ -1032,7 +976,7 @@ def update_visuals(n_clicks, selected_topic, start_date, end_date, num_topics, p
                 template="plotly_dark",
                 title="No articles found in the selected date range"
             )
-            return empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, [], "No articles found in the selected date range."
+            return empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, [], "No articles found in the selected date range."
 
         # Extract document lengths and dominant topics
         doc_lengths = []
@@ -1075,9 +1019,8 @@ def update_visuals(n_clicks, selected_topic, start_date, end_date, num_topics, p
         # Bubble Chart
         fig_bubble = create_bubble_chart(df, selected_topic)
 
-        # Bigram & Trigram Radar Charts
+        # Bigram Chart
         fig_bigram = create_bigram_radar_chart(bigram_texts)
-        fig_trigram = create_trigram_radar_chart(trigram_texts)
 
         # Article table data
         table_data = []
@@ -1096,11 +1039,11 @@ def update_visuals(n_clicks, selected_topic, start_date, end_date, num_topics, p
                 in sorted(doc_topics, key=lambda x: x[1], reverse=True)
             ]
             
-            # Make title clickable and open in new tab
-            title_with_link = f"[{filtered_df.at[i, 'title']}](https://www.theguardian.com/search?q={filtered_df.at[i, 'title'].replace(' ', '+')}) <i class='fas fa-external-link-alt' style='font-size: 0.8em'></i>"
+            # Plain text title (no links)
+            title = filtered_df.at[i, 'title']
             
             table_data.append({
-                'title': title_with_link,
+                'title': title,
                 'published': filtered_df.at[i, 'published'].strftime('%Y-%m-%d %H:%M'),
                 'topics': "<br>".join(these_topics)
             })
@@ -1112,7 +1055,7 @@ def update_visuals(n_clicks, selected_topic, start_date, end_date, num_topics, p
             html.Span(f" for Topic {selected_topic}" if selected_topic != 'all' else " across all topics")
         ])
 
-        return fig_dist, fig_coherence, fig_wc, fig_tsne, fig_bubble, fig_bigram, fig_trigram, table_data, count_message
+        return fig_dist, fig_coherence, fig_wc, fig_tsne, fig_bubble, fig_bigram, table_data, count_message
 
     except Exception as e:
         logger.error(f"update_visuals error: {e}", exc_info=True)
@@ -1122,7 +1065,7 @@ def update_visuals(n_clicks, selected_topic, start_date, end_date, num_topics, p
             template="plotly_dark",
             title=f"Error: {e}"
         )
-        return fig_err, fig_err, fig_err, fig_err, fig_err, fig_err, fig_err, [], f"Error: {e}"
+        return fig_err, fig_err, fig_err, fig_err, fig_err, fig_err, [], f"Error: {e}"
 
 if __name__ == "__main__":
     port = int(os.getenv('PORT', 8050))
